@@ -1,0 +1,26 @@
+# Application Access & Roles Guide
+
+The NIET Exam system supports 3 distinct roles: Admin, Teacher, and Student.
+
+## 1. Admin Role
+- **Default Account**: Username: `admin` | Password: `Admin123!`
+- **Capabilities**:
+  - Add and import teachers via CSV/Excel.
+  - View all allowed users (teachers and students).
+  - Edit existing student details (Name, Username, Reg No, Department, Year, Semester, Section, Password).
+
+## 2. Teacher Role
+- **Default Account**: Username: `teacher` | Password: `ChangeMe123!`
+- **Capabilities**:
+  - **Exam Control**: Start and stop the exam. The system generates *two separate access codes*: one for Coding and one for MCQs.
+  - **Student Management**: Add manually or bulk-import students via CSV. Block/allow student access. Reset passwords.
+  - **Content Creation**: Publish coding questions, test cases (with visible/hidden flags and marks), and multiple-choice questions (MCQs) with time limits.
+  - **Dashboard**: View class-wise leaderboards (CSE, AIDS, CSBS, IT, MECH), monitor live student activity (illegal tab switches), and track coding/MCQ scores.
+
+## 3. Student Role
+- **Default Account**: Username: `student001` | Password: `Student123!`
+- **Capabilities**:
+  - Must use the 6-digit access code provided by the teacher to unlock the exam interface.
+  - Can switch between Python, Java, and C for coding questions.
+  - Can run code using the live terminal (WebSocket-based runner) or verify against test cases.
+  - Must remain in fullscreen; activity is strictly monitored.

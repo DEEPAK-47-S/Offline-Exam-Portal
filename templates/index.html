@@ -1,0 +1,322 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>NIET EXAM - Nehru Institute of Engineering and Technology</title>
+  <link rel="stylesheet" href="{{ url_for('static',filename='css/style.css') }}">
+</head>
+<body>
+  <canvas id="bg-canvas"></canvas>
+  <div class="blob blob-1"></div><div class="blob blob-2"></div><div class="blob blob-3"></div><div class="cursor-glow" id="cursorGlow"></div>
+
+  <div id="leavePrompt" class="fs-prompt hidden">
+    <div class="fs-prompt-card">
+      <b>Are you sure you want to leave the exam?</b>
+      <p>Your Audio and Video is being recorded, so don't involve any illegal activity.</p>
+      <div style="display:flex;gap:12px;justify-content:center;margin-top:20px;">
+        <button id="leaveNoBtn" class="btn btn-ghost">NO</button>
+        <button id="leaveYesBtn" class="btn btn-primary" style="background:#e11d48;box-shadow:none;">YES</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="warningModal" class="fs-prompt hidden" style="z-index: 10000;">
+    <div class="fs-prompt-card" style="text-align: center;">
+      <h3 style="color: #e11d48; margin-top: 0;">WARNING</h3>
+      <p>Please Don't Involve In Any Unwanted Illegal Activity , Audio and Screen is Recorded , So Be CAREFULL</p>
+      <button id="warningOkBtn" class="btn btn-primary" style="margin-top: 15px;">OK</button>
+    </div>
+  </div>
+
+  <div id="fsPrompt" class="fs-prompt hidden">
+    <div class="fs-prompt-card">
+      <b>Fullscreen exited</b>
+      <p>This has been recorded as a violation. You must return to fullscreen to continue the exam.</p>
+      <button id="fsResumeBtn" class="btn btn-primary">Return to fullscreen</button>
+    </div>
+  </div>
+
+  <div class="intro logo-intro" id="intro">
+    <div class="intro-ripples"><span class="ripple-ring r1"></span><span class="ripple-ring r2"></span><span class="ripple-ring r3"></span></div>
+    <div class="intro-mark"><img class="intro-logo" src="{{ url_for('static',filename='img/niet-logo.jpg') }}" alt="Nehru Group of Institutions logo"></div>
+    <div class="intro-text" style="text-align:center"><span class="intro-college">NEHRU INSTITUTE OF ENGINEERING AND TECHNOLOGY<br>COIMBATORE</span><span class="intro-tag">NIET EXAM</span></div>
+  </div>
+
+  <main id="login" class="portal hidden" style="padding:0; min-height:100vh;">
+    <div class="login-split">
+      <div class="login-left">
+        <div class="college-slider" id="collegeSlider">
+          <!-- Images injected via JS -->
+        </div>
+        <div class="slider-overlay"></div>
+      </div>
+      <div class="login-right">
+        <div class="glass login-card">
+          <div class="brand">NIET <span>EXAM</span></div>
+          <h1>Sign in to your exam</h1>
+          <p>Use your registered number and password.</p>
+          <form id="loginForm">
+            <input id="username" required placeholder="Registration / staff / admin username">
+            <input id="password" required type="password" placeholder="Password">
+            <button class="btn btn-primary">Continue</button>
+          </form>
+          <div id="loginError"></div>
+          <small>Student, teacher, and admin access is controlled locally.</small>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <main id="student" class="exam-app hidden">
+    <header class="site-nav glass">
+      <b><img src="{{ url_for('static',filename='img/niet-logo.jpg') }}" alt="Logo" style="height: 30px; vertical-align: middle; margin-right: 10px;">NIET <small>Nehru Institute of Engineering and Technology</small></b>
+      <span id="studentName"></span>
+      <span id="examTimer" class="timer-pill">Waiting</span>
+      <button class="theme-toggle" onclick="toggleTheme()">Mode</button>
+      <button id="studentExit" class="icon-btn" onclick="logout()">Exit</button>
+    </header>
+    <section class="exam-shell glass">
+      <aside>
+        <label>ACTIVE QUESTIONS</label>
+        <div id="examGate" class="exam-gate">
+          <input id="examKey" maxlength="6" placeholder="Enter 6 digit exam key">
+          <button id="joinExam" class="btn btn-primary">Enter Exam</button>
+          <small id="gateMessage">Wait for the teacher to start the exam.</small>
+        </div>
+        <select id="questionSelect"></select>
+        <article id="questionText">No question is available.</article>
+        <div class="profile">
+          <b>My Profile</b>
+          <span id="profileInfo">Your activity is saved locally.</span>
+          <span id="illegalCount">Tab switches: 0</span>
+        </div>
+      </aside>
+      <div class="work">
+        <div class="shell-topbar">
+          <span class="editor-title">Code Editor</span>
+          <select id="language" aria-label="Language"><option value="python">Python</option><option value="java">Java</option><option value="c">C</option></select>
+          <span class="save-state" id="saveState">Locked</span>
+          <button id="runButton" class="run-btn" onclick="runCode()">Run</button>
+          <button id="verifyButton" class="run-btn secondary" onclick="verifyCode()">Verify</button>
+          <button id="submitButton" class="icon-btn submit" onclick="submitCode()">Submit</button>
+          <button id="studentLeaveButton" class="icon-btn submit leave-exam" onclick="leaveExam()">Leave</button>
+        </div>
+        <div class="editor-pane">
+          <div class="line-numbers" id="gutter">1</div>
+          <div class="code-layer"><pre id="highlight" aria-hidden="true" tabindex="-1" contenteditable="false"></pre><textarea id="code" spellcheck="false" autocomplete="off" autocapitalize="off" autocorrect="off" placeholder="# Write your answer here"></textarea></div>
+        </div>
+        <div class="terminal">
+          <div class="io-topbar"><b>Console</b><span id="status"></span></div>
+          <pre id="output" class="output-console">Enter the exam key to unlock the editor.<span id="termLive" class="term-live" contenteditable="false" spellcheck="false"></span></pre>
+          <div id="testResults" class="test-results"></div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <main id="student-mcq" class="exam-app hidden">
+    <header class="site-nav glass">
+      <b><img src="{{ url_for('static',filename='img/niet-logo.jpg') }}" alt="Logo" style="height: 30px; vertical-align: middle; margin-right: 10px;">NIET EXAM</b>
+      <span id="studentMcqName"></span>
+      <span id="mcqTimer" class="timer-pill">Waiting</span>
+      <button class="theme-toggle" onclick="toggleTheme()">Mode</button>
+      <button id="studentMcqExit" class="icon-btn" onclick="logout()">Exit</button>
+    </header>
+    <section class="exam-shell glass" style="display:flex; justify-content:center; align-items:center; flex-direction:column; padding: 2rem;">
+        <div id="mcqContainer" style="width:100%; max-width:800px; display:none;">
+            <h2 id="mcqQuestionText" style="margin-bottom: 2rem;"></h2>
+            <div id="mcqOptions" style="display:flex; flex-direction:column; gap:1rem;">
+                <button class="btn btn-ghost" id="mcqOptA" onclick="submitMcqAnswer('a')">A. <span id="mcqTextA"></span></button>
+                <button class="btn btn-ghost" id="mcqOptB" onclick="submitMcqAnswer('b')">B. <span id="mcqTextB"></span></button>
+                <button class="btn btn-ghost" id="mcqOptC" onclick="submitMcqAnswer('c')">C. <span id="mcqTextC"></span></button>
+                <button class="btn btn-ghost" id="mcqOptD" onclick="submitMcqAnswer('d')">D. <span id="mcqTextD"></span></button>
+            </div>
+        </div>
+        <div id="mcqFinished" style="display:none; text-align:center;">
+            <h2>MCQ Exam Finished</h2>
+            <button class="btn btn-primary" onclick="leaveExam()">Leave Exam</button>
+        </div>
+    </section>
+  </main>
+
+    <main id="teacher" class="portal hidden">
+    <div class="teacher-wrap" style="width: 100%; max-width: 65vw; margin: 0 auto;">
+      <header class="site-nav glass">
+        <b><img src="{{ url_for('static',filename='img/niet-logo.jpg') }}" alt="Logo" style="height: 30px; vertical-align: middle; margin-right: 10px;">NIET <small>Nehru Institute of Engineering and Technology - Teacher</small></b>
+        <span id="teacherName"></span>
+        <button class="theme-toggle" onclick="toggleTheme()">Mode</button>
+        <button class="icon-btn" onclick="logout()">Exit</button>
+      </header>
+      
+      <div class="portal-tabs" style="display:flex; gap:10px; margin: 20px 0;">
+        <button class="tab-btn btn btn-ghost active" data-target="tab-exam" onclick="showTab('tab-exam')">Exam Control</button>
+        <button class="tab-btn btn btn-ghost" data-target="tab-questions" onclick="showTab('tab-questions')">Questions</button>
+        <button class="tab-btn btn btn-ghost" data-target="tab-mcqs" onclick="showTab('tab-mcqs')">MCQs</button>
+        <button class="tab-btn btn btn-ghost" data-target="tab-students" onclick="showTab('tab-students')">Students</button>
+        <button class="tab-btn btn btn-ghost" data-target="tab-activity" onclick="showTab('tab-activity')">Activity & Leaderboard</button>
+      </div>
+
+      <div class="tab-content-area" style="width: 100%;">
+        <section id="tab-exam" class="glass panel portal-tab-content" style="display:block;">
+          <h2>Exam control</h2>
+          <form id="examForm">
+            <input id="minutes" type="number" min="1" value="60" placeholder="Duration in minutes">
+            <button class="btn btn-primary">Generate code and start exam</button>
+            <button type="button" id="stopExam" class="btn btn-ghost" style="color:var(--danger); border-color:var(--danger);">Stop exam</button>
+          </form>
+          <div id="examCode">Exam is not active.</div>
+        </section>
+
+        <section id="tab-questions" class="glass panel portal-tab-content" style="display:none;">
+          <h2>Publish a question</h2>
+          <form id="questionForm">
+            <input id="questionEditId" type="hidden">
+            <input id="qtitle" required placeholder="Question title">
+            <select id="qlang"><option value="python">Python</option><option value="java">Java</option><option value="c">C</option></select>
+            <textarea id="qprompt" required placeholder="Question instructions"></textarea>
+            <button id="questionSaveButton" class="btn btn-primary">Publish / Update</button>
+            <button id="questionCancelEdit" type="button" class="btn btn-ghost hidden">Cancel edit</button>
+          </form>
+          <div id="teacherQuestionList" class="question-list"></div>
+          <hr>
+          <h3>Test cases</h3>
+          <form id="testCaseForm">
+            <select id="caseQuestion"></select>
+            <textarea id="caseInput" placeholder="Input"></textarea>
+            <textarea id="caseOutput" placeholder="Expected output"></textarea>
+            <input id="caseMarks" type="number" min="0" step="0.5" value="1" placeholder="Marks">
+            <label class="check-row"><input id="caseVisible" type="checkbox"> Visible result</label>
+            <input id="caseEditId" type="hidden">
+            <button id="caseSaveButton" class="btn btn-primary">Add test case</button>
+            <button id="caseCancelEdit" type="button" class="btn btn-ghost hidden">Cancel edit</button>
+          </form>
+          <div id="caseList"></div>
+        </section>
+
+        <section id="tab-mcqs" class="glass panel portal-tab-content" style="display:none;">
+          <h2>Manage MCQs</h2>
+          <form id="mcqForm">
+            <input id="mcqEditId" type="hidden">
+            <textarea id="mcqQuestion" required placeholder="Question text"></textarea>
+            <input id="mcqOptionA" required placeholder="Option A">
+            <input id="mcqOptionB" required placeholder="Option B">
+            <input id="mcqOptionC" required placeholder="Option C">
+            <input id="mcqOptionD" required placeholder="Option D">
+            <div class="field-row">
+                <select id="mcqCorrectOption" required><option value="a">A</option><option value="b">B</option><option value="c">C</option><option value="d">D</option></select>
+                <input id="mcqMarks" type="number" min="1" value="1" placeholder="Marks">
+                <input id="mcqTimeLimit" type="number" min="5" value="30" placeholder="Time limit (seconds)">
+            </div>
+            <button id="mcqSaveButton" class="btn btn-primary">Add MCQ</button>
+            <button id="mcqCancelEdit" type="button" class="btn btn-ghost hidden">Cancel edit</button>
+          </form>
+          <div id="mcqList"></div>
+          <hr>
+          <h3>Import MCQs</h3>
+          <form id="mcqImportForm"><input type="file" id="mcqFile" accept=".csv,.xlsx" required><button class="btn btn-ghost">Upload CSV / Excel</button></form>
+          <small>Required columns: Questions, Option A, Option B, Option C, Option D, Correct Option, Mark, Time.</small>
+        </section>
+
+        <section id="tab-students" class="glass panel portal-tab-content" style="display:none;">
+          <h2>Import students</h2>
+          <form id="importForm"><input type="file" id="studentFile" accept=".csv,.xlsx" required><button class="btn btn-primary">Upload CSV / Excel</button></form>
+          <small>Required columns: name, registernumber, department, year, semester, section, password.</small>
+          <hr>
+          <h3>Add student manually</h3>
+          <form id="studentManualForm">
+            <input id="studentFullName" required placeholder="Student name">
+            <input id="studentRegisterNumber" required placeholder="Register number / username">
+            <input id="studentDepartment" placeholder="Department">
+            <div class="field-row"><input id="studentYear" placeholder="Year"><input id="studentSemester" placeholder="Semester"><input id="studentSection" placeholder="Section"></div>
+            <input id="studentPassword" required placeholder="Password">
+            <button class="btn btn-primary">Save student</button>
+          </form>
+          <hr>
+          <h3>Manage students</h3>
+          <input id="studentSearch" placeholder="Search name, register number, department">
+          <div id="studentList" class="student-list">Loading students...</div>
+        </section>
+
+        <section id="tab-activity" class="glass panel portal-tab-content" style="display:none;">
+          <h2>Student activity</h2><div id="activity">Loading...</div>
+          <hr>
+          <h2>Class-wise Leaderboard</h2>
+          <select id="leaderboardClassSelect">
+              <option value="">Select Class ▼</option>
+              <option value="CSE-A">CSE-A</option><option value="CSE-B">CSE-B</option>
+              <option value="AIDS-A">AIDS-A</option><option value="AIDS-B">AIDS-B</option>
+              <option value="CSBS-A">CSBS-A</option><option value="CSBS-B">CSBS-B</option>
+              <option value="IT-A">IT-A</option><option value="IT-B">IT-B</option>
+              <option value="MECH-A">MECH-A</option><option value="MECH-B">MECH-B</option>
+          </select>
+          <div id="leaderboardContainer" style="margin-top:1rem; overflow-x:auto;">
+              <table style="width:100%; border-collapse:collapse; text-align:left;">
+                  <thead><tr><th>Rank</th><th>Student Name</th><th>Reg No</th><th>Class</th><th>Time (s)</th><th>Coding Score</th><th>MCQ Score</th></tr></thead>
+                  <tbody id="leaderboardTableBody"></tbody>
+              </table>
+          </div>
+        </section>
+      </div>
+    </div>
+  </main>
+
+    <main id="admin" class="portal hidden">
+    <div class="teacher-wrap" style="width: 100%; max-width: 65vw; margin: 0 auto;">
+      <header class="site-nav glass">
+        <b><img src="{{ url_for('static',filename='img/niet-logo.jpg') }}" alt="Logo" style="height: 30px; vertical-align: middle; margin-right: 10px;">NIET <small>NIT Exam - Admin</small></b>
+        <span id="adminName"></span>
+        <button class="theme-toggle" onclick="toggleTheme()">Mode</button>
+        <button class="icon-btn" onclick="logout()">Exit</button>
+      </header>
+
+      <div class="portal-tabs" style="display:flex; gap:10px; margin: 20px 0;">
+        <button class="tab-btn btn btn-ghost active" data-target="tab-admin-teachers" onclick="showTab('tab-admin-teachers')">Manage Teachers</button>
+        <button class="tab-btn btn btn-ghost" data-target="tab-admin-students" onclick="showTab('tab-admin-students')">Manage Students</button>
+      </div>
+
+      <div class="tab-content-area" style="width: 100%;">
+        <section id="tab-admin-teachers" class="glass panel portal-tab-content" style="display:block;">
+          <h2>Add teacher access</h2>
+          <form id="teacherAccessForm">
+            <input id="teacherFullName" required placeholder="Teacher name">
+            <input id="teacherUserName" required placeholder="Teacher username">
+            <input id="teacherPassword" required placeholder="Teacher password">
+            <button class="btn btn-primary">Save teacher</button>
+          </form>
+          <hr>
+          <h3>Import teachers</h3>
+          <form id="teacherImportForm"><input type="file" id="teacherFile" accept=".csv,.xlsx" required><button class="btn btn-primary">Upload CSV / Excel</button></form>
+          <small>Required columns: name, username, department, password.</small>
+          <hr>
+          <h3>System Users</h3>
+          <div id="adminUsers">Loading...</div>
+        </section>
+
+        <section id="tab-admin-students" class="glass panel portal-tab-content" style="display:none;">
+          <h2>Edit student details</h2>
+          <form id="adminStudentEditForm">
+            <input id="adminStudentSearch" placeholder="Search student by username to edit">
+            <div id="adminStudentEditFields" style="display:none; margin-top:1rem;">
+                <input id="adminEditId" type="hidden">
+                <input id="adminEditName" required placeholder="Student name">
+                <input id="adminEditUsername" required placeholder="Username">
+                <input id="adminEditRegNo" required placeholder="Register number">
+                <div class="field-row">
+                    <select id="adminEditDept"><option value="">Dept</option><option value="CSE">CSE</option><option value="AIDS">AIDS</option><option value="CSBS">CSBS</option><option value="IT">IT</option><option value="MECH">MECH</option></select>
+                    <input id="adminEditYear" placeholder="Year">
+                    <input id="adminEditSem" placeholder="Semester">
+                    <select id="adminEditSec"><option value="">Sec</option><option value="A">A</option><option value="B">B</option></select>
+                </div>
+                <input id="adminEditPassword" placeholder="New Password (leave blank to keep current)">
+                <button type="button" id="adminSaveStudentBtn" class="btn btn-primary">Save changes</button>
+                <button type="button" id="adminCancelEditBtn" class="btn btn-ghost">Cancel</button>
+            </div>
+          </form>
+        </section>
+      </div>
+    </div>
+  </main>
+  <script src="{{ url_for('static',filename='js/script-v2.js') }}?v=editor-colors-javafix-20260807"></script>
+</body>
+</html>

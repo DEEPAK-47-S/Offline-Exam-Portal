@@ -1,0 +1,24 @@
+# Project Database & Architecture Guide
+
+## Database Schema (`exam_lab.db`)
+The system uses SQLite, instantiated automatically via `init_db()` in `app.py`.
+- **`users`**: Stores login credentials (password hashed via Werkzeug) and roles (admin, teacher, student).
+- **`student_profiles`**: Links to `users.id`, stores academic info (register_number, department, year, semester, section).
+- **`exam_access`**: Manages current exam state for students (joined_at, locked, allowed, violations, final_score, mcq_final_score).
+- **`questions` / `test_cases`**: Stores coding questions and their I/O test cases.
+- **`mcqs` / `mcq_status`**: Stores multiple choice questions and records student answers/correctness.
+- **`submissions`**: Logs every code submission, language used, execution time, and score.
+- **`activity`**: Audit log of student anti-cheat violations.
+- **`exam_state`**: A single row (id=1) tracking if the exam is active, the two 6-digit access codes (coding & MCQ), and the start time/duration.
+
+## Websocket Code Execution
+- The app uses `flask_sock` to open a WebSocket connection (`/ws/run`).
+- When a student clicks "Run", the code is saved to a temporary directory using `tempfile`.
+- A background `subprocess.Popen` is launched (Python, Java, or GCC).
+- `stdout` and `stderr` are streamed in real-time back to the student's browser via WebSockets, allowing interactive input (e.g., Python `input()` or C `scanf`).
+
+## Resetting the System
+To completely wipe all data (students, teachers, questions, and scores) for a new academic year:
+1. Stop the application.
+2. Delete the `exam_lab.db` file.
+3. Restart `app.py`. The database will be recreated cleanly with default admin and teacher accounts.

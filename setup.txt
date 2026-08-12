@@ -1,0 +1,40 @@
+======================================
+NIET OFFLINE EXAM LAB - SETUP GUIDE
+======================================
+
+1. PREREQUISITES
+----------------
+To run the NIET Exam Platform locally without an internet connection, you need:
+- Python 3.8 or higher.
+- A C compiler (MinGW-w64/GCC) added to your system PATH.
+- Java Development Kit (JDK) added to your system PATH.
+
+2. INSTALLATION
+---------------
+1. Open a terminal (Command Prompt or PowerShell) in this folder.
+2. Install the required Python packages:
+   pip install flask flask-sock openpyxl werkzeug
+
+3. RUNNING THE EXAM SERVER
+--------------------------
+1. Double click the `run.bat` file, or run the following command in your terminal:
+   python app.py
+2. The server will start and bind to `0.0.0.0`, meaning it will be accessible from any computer on the same local network.
+3. Open your web browser (Chrome, Edge, Firefox) and navigate to:
+   http://localhost:5000 (if on the host machine)
+   OR
+   http://<Host-IP-Address>:5000 (if connecting from student laptops)
+
+4. ACCOUNTS
+-----------
+By default, the system initializes with:
+- Admin Account: admin / Admin123!
+- Teacher Account: teacher / ChangeMe123!
+- Student Account: student001 / Student123!
+
+5. USAGE FLOW
+-------------
+- Admins can import Teachers using a CSV file (columns: name, username, password, department).
+- Teachers can import Students using a CSV file (columns: name, registernumber, department, year, semester, section, password).
+- Teachers can create questions, MCQs, and generate an Exam Code.
+- Students must log in and enter the generated Exam Code to unlock the exam interface.

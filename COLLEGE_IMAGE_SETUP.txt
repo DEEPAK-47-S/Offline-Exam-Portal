@@ -1,0 +1,7 @@
+# College Image Setup
+
+To replace the default logo with your college's logo:
+1. Obtain your college logo (preferably in PNG or JPG format with a transparent background if possible).
+2. Save the logo file into the `static/` folder of this project.
+3. Open `templates/index.html` (and any other relevant templates) and update the `<img>` tag `src` attribute to point to your new logo file.
+   - Example: `<img src="{{ url_for('static', filename='my_college_logo.png') }}" alt="College Logo">`

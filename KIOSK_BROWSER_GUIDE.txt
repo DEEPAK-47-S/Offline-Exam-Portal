@@ -1,0 +1,21 @@
+# Kiosk & Anti-Cheat Security Guide
+
+The NIET Exam portal features strict, client-side anti-cheat mechanisms enforced via JavaScript (`script-v2.js`).
+
+## Monitored Violations
+The system tracks the following actions and logs them directly to the database. If a student triggers any of these, their violation count increases:
+1. **Window Blur**: Detected if the student clicks away to another application.
+2. **Tab Hidden**: Detected if the exam tab loses visibility (`visibilitychange`).
+3. **Fullscreen Exit**: Detected if the student manually escapes fullscreen mode (`fullscreenchange`). The exam pauses and forces them back into fullscreen.
+4. **Screen Resize**: Detected if the browser window shrinks below 900x600 (a common sign of split-screening).
+5. **Blocked Keystrokes**: The system blocks and logs attempts to use `Ctrl+V` (paste), system keys (Meta/Windows/Copilot), and `F1-F3`.
+
+## The 4-Strike Policy
+- **Strikes 1 to 3**: The student receives an on-screen warning ("First warning", "Final warning", etc.).
+- **Strike 4**: The exam is forcefully locked. The editor becomes read-only, and the `exam_access` database table marks the student as `locked = 1`.
+- **Unlock**: A teacher must manually go to their dashboard and reset the student's access.
+
+## Kiosk Mode Setup (Recommended)
+For ultimate security in computer labs, launch the browser in Kiosk mode. This prevents students from accessing the OS entirely.
+- **Chrome**: `chrome.exe --kiosk http://<SERVER_IP>:5000`
+- **Edge**: `msedge.exe --kiosk http://<SERVER_IP>:5000 --edge-kiosk-type=fullscreen`

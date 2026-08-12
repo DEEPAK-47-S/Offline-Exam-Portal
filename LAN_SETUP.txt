@@ -1,0 +1,19 @@
+# LAN & Network Setup Guide
+
+This exam portal is explicitly built to run on a local offline network (LAN or Wi-Fi hotspot) without internet access. 
+
+## 1. Server Setup (Teacher/Admin Machine)
+- Ensure the server computer has Python 3.8+ installed.
+- Open the command prompt and run `ipconfig` (Windows) or `ifconfig` (Linux/Mac) to find your local IPv4 address (e.g., `192.168.1.100`).
+- Run `START_LAN.bat` or manually execute `python app.py`. The app binds to `0.0.0.0:5000`, making it accessible on the local network.
+- **Firewall**: Ensure that your Windows/Mac firewall allows incoming TCP connections on Port 5000. If students cannot connect, temporarily disable the firewall for the private network.
+
+## 2. Student Connection
+- Connect all student devices to the SAME Wi-Fi or LAN switch as the server.
+- Students open their web browsers (Chrome/Edge) and type the server's IP and port into the URL bar: `http://192.168.1.100:5000`
+
+## 3. Subprocess Compilers
+Because students execute code locally on the server, the server computer MUST have the compilers installed and added to the System PATH:
+- **Python**: Installed by default if running `app.py`.
+- **Java**: Install JDK 11+ (ensure `javac` and `java` are in PATH).
+- **C**: Install MinGW-w64 (ensure `gcc` is in PATH). The app uses `-std=c11`.
