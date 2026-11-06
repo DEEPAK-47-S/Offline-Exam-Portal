@@ -21,7 +21,7 @@ Allows Administrators and Teachers to customize the exact question set a student
 - **Real-Time Interactive Terminal:** Uses `flask-sock` WebSockets (`/ws/run`) for bidirectional communication, enabling interactive stdin input (e.g. `input()` in Python or `scanf()` in C).
 - **Test Case Evaluation:** Support for visible and hidden test cases, each with individual mark weighting.
 - **Auto-Save & Draft Recovery:** Code drafts are continuously synchronized so student work is never lost across reconnects or accidental reloads.
-- **Navigation Controls:** Fast switching between assigned questions with `◀ Prev`, `Next ▶`, and dynamic question palettes.
+- **Navigation Controls:** Direct switching between assigned questions via the clean question selector dropdown and dynamic question badges.
 
 ### 3. 📝 Multiple Choice Question (MCQ) Engine
 - **Instant Auto-Grading:** Multiple-choice examinations with configurable per-question marks and timers.
@@ -145,23 +145,23 @@ To stop the cluster cleanly:
 
 ---
 
-## 🧪 Automated Test Suites
+## 🧪 Automated Test Suites & Test Isolation
 
-The codebase includes comprehensive automated test suites covering all backend routes, security policies, and question control logic:
+All test suites run in strictly isolated temporary databases using synthetic test fixtures. Test executions never touch, alter, or expose production examination records or student passwords.
 
-### 1. Individual Question Assignment Matrix (15 Scenarios)
-Verifies common vs. individual modes, question isolation, attempt locking, persistence, result calculations, and MCQ assignments:
+### 1. Individual Question Assignment & Audit Matrix (21 Scenarios)
+Verifies common-mode attempt snapshots, explicit invalid assignment states (`COMMON`, `INDIVIDUAL`, `INVALID`), assignment API authorization and ownership validation, MCQ duplicate submission idempotency, backend independent code score calculation, attempt locking, cross-exam isolation, and result calculation:
 ```powershell
 .\.venv\Scripts\python.exe test_individual_question_assignment.py
 ```
-*Result: 15/15 Tests Passed (100% Success).*
+*Result: 7 Test Suites / 21 Scenarios Passed (100% Success).*
 
 ### 2. Full System Regression & Buttons Audit (11 Suites)
-Verifies authentication, question authoring, anti-cheat 5-strike locking, multi-language execution (Python, C, Java), live code inspection, plagiarism matching, and score downloads:
+Verifies authentication, question authoring, anti-cheat 5-strike locking, multi-language execution in sandboxed Windows Job Objects (Python, C, Java), live code inspection, plagiarism matching, time-over exit, and score downloads:
 ```powershell
 .\.venv\Scripts\python.exe test_all_buttons_and_backend.py
 ```
-*Result: 11/11 Test Suites Passed.*
+*Result: 11/11 Test Suites Passed (100% Success).*
 
 ---
 
@@ -169,21 +169,21 @@ Verifies authentication, question authoring, anti-cheat 5-strike locking, multi-
 
 ```
 ├── app.py                                # Main Flask server, WebSocket handler, and REST APIs
-├── exam_lab.db                           # Core SQLite database
 ├── nginx.conf                            # Nginx load balancer reverse-proxy configuration
 ├── start_servers.bat                     # Launches 5 Python workers + Nginx load balancer
 ├── stop_servers.bat                      # Terminates all running cluster instances
 ├── START_LAN.bat                         # Quick single-server LAN launcher
 ├── requirements.txt                      # Python dependencies
 ├── .env.example                          # Environment variable template
-├── .gitignore                            # Clean repository exclusion list
+├── .gitignore                            # Clean repository exclusion list (ignores *.db, .env)
 ├── static/
 │   ├── css/style.css                     # Responsive UI styling & dark/light theme
 │   ├── js/script-v2.js                   # Client-side SPA controllers, editor, and WebSocket
 │   └── img/                              # College logo and assets
 ├── templates/
 │   └── index.html                        # Single-page application templates for all 3 roles
-└── test_individual_question_assignment.py# End-to-end integration test suite
+├── test_individual_question_assignment.py# Question assignment & audit verification suite
+└── test_all_buttons_and_backend.py       # Full system regression & buttons audit suite
 ```
 
 ---

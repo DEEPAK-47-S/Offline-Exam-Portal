@@ -10,6 +10,7 @@ import os
 import sys
 import sqlite3
 import shutil
+import tempfile
 
 # Ensure utf-8 output on Windows consoles
 if hasattr(sys.stdout, 'reconfigure'):
@@ -22,9 +23,22 @@ from app import app, conn, init_db
 class TestIndividualQuestionAssignment(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
+        cls.temp_db_fd, cls.temp_db_path = tempfile.mkstemp(suffix=".db", prefix="test_asgn_")
+        os.close(cls.temp_db_fd)
         app.config['TESTING'] = True
         app.config['WTF_CSRF_ENABLED'] = False
-        init_db()
+        app.config['DATABASE_PATH'] = cls.temp_db_path
+        init_db(cls.temp_db_path)
+
+    @classmethod
+    def tearDownClass(cls):
+        app.config['DATABASE_PATH'] = None
+        for p in (cls.temp_db_path, cls.temp_db_path + "-wal", cls.temp_db_path + "-shm"):
+            if os.path.exists(p):
+                try:
+                    os.remove(p)
+                except Exception:
+                    pass
 
     def setUp(self):
         self.client = app.test_client()
@@ -481,6 +495,301 @@ class TestIndividualQuestionAssignment(unittest.TestCase):
         print("\n==================================================================")
         print("ALL 15 TESTS (A through O) PASSED WITH 100% SUCCESS!")
         print("==================================================================")
+
+    def test_audit_common_mode_attempt_snapshot(self):
+        """Audit Req 1: Stable attempt question snapshot for common-mode students."""
+        print("\n[AUDIT 1] Common-Mode Attempt Question Snapshots")
+        tid = self.create_user("teacher_snap", "Teacher Snap", "teacher")
+        sid = self.create_user("student_snap", "Student Snap", "student")
+        
+        c = conn()
+        c.execute("INSERT OR REPLACE INTO exam_access (user_id, teacher_id, allowed, violations, joined_at) VALUES (?, ?, 1, 0, NULL)", (sid, tid))
+        
+        # Create 3 initial coding questions
+        q1 = c.execute("INSERT INTO questions (teacher_id, title, prompt, language, active) VALUES (?, 'Q1', 'Prompt 1', 'python', 1)", (tid,)).lastrowid
+        q2 = c.execute("INSERT INTO questions (teacher_id, title, prompt, language, active) VALUES (?, 'Q2', 'Prompt 2', 'python', 1)", (tid,)).lastrowid
+        q3 = c.execute("INSERT INTO questions (teacher_id, title, prompt, language, active) VALUES (?, 'Q3', 'Prompt 3', 'python', 1)", (tid,)).lastrowid
+        
+        exam_key = "KEY_SNAP_1"
+        c.execute("""
+            INSERT INTO exam_state (teacher_id, active, coding_active, access_code, duration_minutes, started_at)
+            VALUES (?, 1, 1, ?, 60, ?)
+            ON CONFLICT(teacher_id) DO UPDATE SET active=1, coding_active=1, access_code=excluded.access_code, started_at=excluded.started_at
+        """, (tid, exam_key, time.time()))
+        c.commit(); c.close()
+        
+        # Student joins exam in Common Mode
+        self.login("student_snap")
+        r_join = self.client.post('/api/exam/join', json={'access_code': exam_key})
+        self.assertEqual(r_join.status_code, 200)
+        
+        # Student sees initial 3 questions
+        r_q = self.client.get('/api/questions')
+        self.assertEqual(r_q.status_code, 200)
+        q_list = [q['id'] for q in r_q.get_json()]
+        self.assertEqual(len(q_list), 3)
+        self.assertEqual(set(q_list), {q1, q2, q3})
+        self.logout()
+        
+        # Teacher now adds a 4th question while student's attempt is active
+        c = conn()
+        q4 = c.execute("INSERT INTO questions (teacher_id, title, prompt, language, active) VALUES (?, 'Q4', 'Prompt 4', 'python', 1)", (tid,)).lastrowid
+        c.commit(); c.close()
+        
+        # Active student returns / calls /api/questions
+        self.login("student_snap")
+        r_q2 = self.client.get('/api/questions')
+        self.assertEqual(r_q2.status_code, 200)
+        q_list2 = [q['id'] for q in r_q2.get_json()]
+        # MUST still be only 3 questions; Q4 must NOT be present!
+        self.assertEqual(len(q_list2), 3, "Common-mode student attempt must remain locked to initial snapshot")
+        self.assertNotIn(q4, q_list2, "Questions added after join must not appear in active attempt")
+        self.logout()
+        print("  -> [PASS] Audit 1: Common-mode attempt snapshot remained locked despite bank edits.")
+
+    def test_audit_invalid_assignment_handling(self):
+        """Audit Req 2: Corrupted, empty, or invalid assignments produce safe error and never expose common questions."""
+        print("\n[AUDIT 2] Invalid Assignment Explicit Handling & Error Protection")
+        tid = self.create_user("teacher_inv", "Teacher Invalid", "teacher")
+        sid = self.create_user("student_inv", "Student Invalid", "student")
+        
+        c = conn()
+        c.execute("INSERT OR REPLACE INTO exam_access (user_id, teacher_id, allowed, violations, joined_at) VALUES (?, ?, 1, 0, NULL)", (sid, tid))
+        # 2 common questions exist
+        c.execute("INSERT INTO questions (teacher_id, title, prompt, language, active) VALUES (?, 'Common 1', 'P1', 'python', 1)", (tid,))
+        c.execute("INSERT INTO questions (teacher_id, title, prompt, language, active) VALUES (?, 'Common 2', 'P2', 'python', 1)", (tid,))
+        exam_key = "KEY_INV_1"
+        c.execute("""
+            INSERT INTO exam_state (teacher_id, active, coding_active, access_code, duration_minutes, started_at)
+            VALUES (?, 1, 1, ?, 60, ?)
+            ON CONFLICT(teacher_id) DO UPDATE SET active=1, coding_active=1, access_code=excluded.access_code, started_at=excluded.started_at
+        """, (tid, exam_key, time.time()))
+        c.commit(); c.close()
+        
+        # Sub-case A: Corrupted JSON assignment
+        c = conn()
+        c.execute("""
+            INSERT OR REPLACE INTO student_question_assignments (exam_key, teacher_id, exam_type, student_id, assigned_question_ids, created_by)
+            VALUES (?, ?, 'coding', ?, '{malformed_json:', ?)
+        """, (exam_key, tid, sid, tid))
+        c.commit(); c.close()
+        
+        self.login("student_inv")
+        r = self.client.post('/api/exam/join', json={'access_code': exam_key})
+        self.assertEqual(r.status_code, 400, "Corrupted assignment must produce 400 error")
+        self.assertEqual(r.get_json().get('assignment_state'), 'INVALID')
+        
+        r_q = self.client.get('/api/questions')
+        self.assertEqual(r_q.status_code, 400)
+        self.assertEqual(r_q.get_json().get('assignment_state'), 'INVALID')
+        self.logout()
+        
+        # Sub-case B: Empty list assignment []
+        c = conn()
+        c.execute("""
+            UPDATE student_question_assignments SET assigned_question_ids='[]' WHERE exam_key=? AND student_id=?
+        """, (exam_key, sid))
+        c.commit(); c.close()
+        
+        self.login("student_inv")
+        r = self.client.post('/api/exam/join', json={'access_code': exam_key})
+        self.assertEqual(r.status_code, 400)
+        self.assertEqual(r.get_json().get('assignment_state'), 'INVALID')
+        self.logout()
+        
+        # Sub-case C: Assignment referencing non-existent question IDs
+        c = conn()
+        c.execute("""
+            UPDATE student_question_assignments SET assigned_question_ids='[999999]' WHERE exam_key=? AND student_id=?
+        """, (exam_key, sid))
+        c.commit(); c.close()
+        
+        self.login("student_inv")
+        r = self.client.post('/api/exam/join', json={'access_code': exam_key})
+        self.assertEqual(r.status_code, 400)
+        self.assertEqual(r.get_json().get('assignment_state'), 'INVALID')
+        self.logout()
+        print("  -> [PASS] Audit 2: Invalid assignments rejected cleanly with 400 and never leaked common questions.")
+
+    def test_audit_assignment_api_authorization(self):
+        """Audit Req 3: Assignment API authorization, teacher ownership, and validation."""
+        print("\n[AUDIT 3] Assignment API Authorization & Ownership Validation")
+        t1 = self.create_user("teacher_auth1", "Teacher Auth 1", "teacher")
+        t2 = self.create_user("teacher_auth2", "Teacher Auth 2", "teacher")
+        s1 = self.create_user("student_auth1", "Student Auth 1", "student")
+        
+        c = conn()
+        c.execute("INSERT OR REPLACE INTO exam_access (user_id, teacher_id, allowed, violations) VALUES (?, ?, 1, 0)", (s1, t1))
+        q_t1 = c.execute("INSERT INTO questions (teacher_id, title, prompt, language, active) VALUES (?, 'T1 Q', 'P1', 'python', 1)", (t1,)).lastrowid
+        q_t2 = c.execute("INSERT INTO questions (teacher_id, title, prompt, language, active) VALUES (?, 'T2 Q', 'P2', 'python', 1)", (t2,)).lastrowid
+        exam_key_t1 = "KEY_T1_AUTH"
+        c.execute("INSERT INTO exam_state (teacher_id, active, coding_active, access_code, duration_minutes, started_at) VALUES (?, 1, 1, ?, 60, ?)", (t1, exam_key_t1, time.time()))
+        c.commit(); c.close()
+        
+        # 1. Non-owner teacher (t2) cannot assign for t1's exam
+        self.login("teacher_auth2")
+        r = self.client.post('/api/assignments', json={
+            'exam_key': exam_key_t1, 'exam_type': 'coding', 'teacher_id': t1, 'student_id': s1, 'question_ids': [q_t1]
+        })
+        self.assertEqual(r.status_code, 403, "Non-owner teacher must be rejected with 403")
+        self.logout()
+        
+        # 2. Student cannot call assignment API
+        self.login("student_auth1")
+        r = self.client.post('/api/assignments', json={
+            'exam_key': exam_key_t1, 'exam_type': 'coding', 'teacher_id': t1, 'student_id': s1, 'question_ids': [q_t1]
+        })
+        self.assertIn(r.status_code, (401, 403), "Student calling assignment API must be rejected")
+        self.logout()
+        
+        # 3. Owner teacher assigning foreign question IDs (belonging to t2)
+        self.login("teacher_auth1")
+        r = self.client.post('/api/assignments', json={
+            'exam_key': exam_key_t1, 'exam_type': 'coding', 'teacher_id': t1, 'student_id': s1, 'question_ids': [q_t2]
+        })
+        self.assertEqual(r.status_code, 400, "Assigning questions belonging to another teacher must fail with 400")
+        
+        # 4. Assigning to non-existent student
+        r = self.client.post('/api/assignments', json={
+            'exam_key': exam_key_t1, 'exam_type': 'coding', 'teacher_id': t1, 'student_id': 999999, 'question_ids': [q_t1]
+        })
+        self.assertEqual(r.status_code, 400, "Assigning to non-existent student must fail with 400")
+        
+        # 5. Assigning to blocked student (allowed=0)
+        c = conn()
+        c.execute("UPDATE exam_access SET allowed=0 WHERE user_id=? AND teacher_id=?", (s1, t1))
+        c.commit(); c.close()
+        r = self.client.post('/api/assignments', json={
+            'exam_key': exam_key_t1, 'exam_type': 'coding', 'teacher_id': t1, 'student_id': s1, 'question_ids': [q_t1]
+        })
+        self.assertEqual(r.status_code, 403, "Assigning to blocked student must fail with 403")
+        self.logout()
+        print("  -> [PASS] Audit 3: Strict ownership and authorization enforcement on assignment APIs.")
+
+    def test_audit_mcq_duplicate_submission_idempotency(self):
+        """Audit Req 4: MCQ duplicate answer protection & score idempotency."""
+        print("\n[AUDIT 4] MCQ Duplicate Answer Protection & Score Idempotency")
+        tid = self.create_user("teacher_mcq_idem", "Teacher MCQ", "teacher")
+        sid = self.create_user("student_mcq_idem", "Student MCQ", "student")
+        
+        c = conn()
+        c.execute("INSERT OR REPLACE INTO exam_access (user_id, teacher_id, allowed, violations, joined_at) VALUES (?, ?, 1, 0, NULL)", (sid, tid))
+        m1 = c.execute("INSERT INTO mcqs (teacher_id, question, option_a, option_b, option_c, option_d, correct_option, marks) VALUES (?, 'Q1', 'A', 'B', 'C', 'D', 'a', 5.0)", (tid,)).lastrowid
+        m2 = c.execute("INSERT INTO mcqs (teacher_id, question, option_a, option_b, option_c, option_d, correct_option, marks) VALUES (?, 'Q2', 'A', 'B', 'C', 'D', 'b', 5.0)", (tid,)).lastrowid
+        exam_key = "KEY_MCQ_IDEM"
+        c.execute("INSERT INTO exam_state (teacher_id, active, mcq_active, mcq_access_code) VALUES (?, 1, 1, ?)", (tid, exam_key))
+        c.commit(); c.close()
+        
+        self.login("student_mcq_idem")
+        self.client.post('/api/exam/join', json={'access_code': exam_key})
+        
+        # Submit correct answer for m1 3 times repeatedly
+        for _ in range(3):
+            r = self.client.post('/api/mcqs/submit', json={'mcq_id': m1, 'selected_option': 'a'})
+            self.assertEqual(r.status_code, 200)
+            self.assertTrue(r.get_json()['is_correct'])
+            
+        # Check database: Exactly 1 row for m1 in mcq_status!
+        c = conn()
+        rows = c.execute("SELECT * FROM mcq_status WHERE student_id=? AND teacher_id=? AND mcq_id=?", (sid, tid, m1)).fetchall()
+        self.assertEqual(len(rows), 1, "Repeated submissions must update the single existing row (idempotent)")
+        c.close()
+        
+        # Finish MCQ exam
+        r_finish = self.client.post('/api/mcqs/finish')
+        self.assertEqual(r_finish.status_code, 200)
+        
+        # Scorecard must show exactly 5.0, NOT 15.0!
+        res = self.client.get('/api/student/result').get_json()
+        self.assertEqual(res['scores']['mcq_score'], 5.0, "Score must not inflate with duplicate submissions")
+        
+        # Attempting to submit after finish must be rejected
+        r_after = self.client.post('/api/mcqs/submit', json={'mcq_id': m2, 'selected_option': 'b'})
+        self.assertEqual(r_after.status_code, 403, "Submitting answer after MCQ exam finish must return 403")
+        self.logout()
+        print("  -> [PASS] Audit 4: MCQ idempotent upsert verified: Exactly 1 row per question, duplicate submission score inflation impossible.")
+
+    def test_audit_coding_score_security_tamper_proofing(self):
+        """Audit Req 5: Backend independently validates coding score; ignores client score tampering."""
+        print("\n[AUDIT 5] Coding Score Security & Independent Server Verification")
+        tid = self.create_user("teacher_score_sec", "Teacher Sec", "teacher")
+        sid = self.create_user("student_score_sec", "Student Sec", "student")
+        
+        c = conn()
+        c.execute("INSERT OR REPLACE INTO exam_access (user_id, teacher_id, allowed, violations, joined_at) VALUES (?, ?, 1, 0, NULL)", (sid, tid))
+        q = c.execute("INSERT INTO questions (teacher_id, title, prompt, language, active) VALUES (?, 'Q Add', 'Add numbers', 'python', 1)", (tid,)).lastrowid
+        c.execute("INSERT INTO test_cases (question_id, input_data, expected_output, marks, visible) VALUES (?, '3 4', '7', 10.0, 1)", (q,))
+        exam_key = "KEY_SCORE_SEC"
+        c.execute("INSERT INTO exam_state (teacher_id, active, coding_active, access_code, duration_minutes, started_at) VALUES (?, 1, 1, ?, 60, ?)", (tid, exam_key, time.time()))
+        c.commit(); c.close()
+        
+        self.login("student_score_sec")
+        self.client.post('/api/exam/join', json={'access_code': exam_key})
+        
+        # Malicious client sends incorrect code but claims score=100.0
+        bad_code = "print('wrong')"
+        r = self.client.post('/api/submit', json={'question_id': q, 'language': 'python', 'code': bad_code, 'score': 100.0})
+        self.assertEqual(r.status_code, 200)
+        # Server must independently calculate score = 0.0
+        self.assertEqual(r.get_json()['live_score'], 0.0, "Server must ignore client score and award 0.0 for failing code")
+        
+        c = conn()
+        sub = c.execute("SELECT score FROM submissions WHERE user_id=? AND question_id=?", (sid, q)).fetchone()
+        self.assertEqual(sub['score'], 0.0, "Authoritative score stored in DB must be 0.0")
+        c.close()
+        
+        # Now student submits correct solution
+        good_code = "import sys\nparts = sys.stdin.read().split()\nprint(int(parts[0]) + int(parts[1]))\n"
+        r2 = self.client.post('/api/submit', json={'question_id': q, 'language': 'python', 'code': good_code, 'score': 0.0})
+        self.assertEqual(r2.status_code, 200)
+        self.assertEqual(r2.get_json()['live_score'], 10.0, "Server must independently calculate score = 10.0 for passing code")
+        self.logout()
+        print("  -> [PASS] Audit 5: Server-side independent score execution verified; client tampering resisted.")
+
+    def test_audit_concurrent_post_start_assignment_block(self):
+        """Audit Req 3 & 6: Prevent assignment modification or reset once attempt has started."""
+        print("\n[AUDIT 6] Concurrent / Post-Start Assignment Modification Block")
+        tid = self.create_user("teacher_lock_mod", "Teacher Lock", "teacher")
+        sid = self.create_user("student_lock_mod", "Student Lock", "student")
+        
+        c = conn()
+        c.execute("INSERT OR REPLACE INTO exam_access (user_id, teacher_id, allowed, violations, joined_at) VALUES (?, ?, 1, 0, NULL)", (sid, tid))
+        q1 = c.execute("INSERT INTO questions (teacher_id, title, prompt, language, active) VALUES (?, 'Q1', 'P1', 'python', 1)", (tid,)).lastrowid
+        q2 = c.execute("INSERT INTO questions (teacher_id, title, prompt, language, active) VALUES (?, 'Q2', 'P2', 'python', 1)", (tid,)).lastrowid
+        exam_key = "KEY_LOCK_MOD"
+        c.execute("INSERT INTO exam_state (teacher_id, active, coding_active, access_code, duration_minutes, started_at) VALUES (?, 1, 1, ?, 60, ?)", (tid, exam_key, time.time()))
+        c.commit(); c.close()
+        
+        # Teacher assigns q1 to student before attempt starts
+        self.login("teacher_lock_mod")
+        r_asgn = self.client.post('/api/assignments', json={
+            'exam_key': exam_key, 'exam_type': 'coding', 'teacher_id': tid, 'student_id': sid, 'question_ids': [q1]
+        })
+        self.assertEqual(r_asgn.status_code, 200)
+        self.logout()
+        
+        # Student starts attempt by joining
+        self.login("student_lock_mod")
+        r_join = self.client.post('/api/exam/join', json={'access_code': exam_key})
+        self.assertEqual(r_join.status_code, 200)
+        self.logout()
+        
+        # Teacher now attempts to change assignment after attempt started -> MUST FAIL
+        self.login("teacher_lock_mod")
+        r_fail_mod = self.client.post('/api/assignments', json={
+            'exam_key': exam_key, 'exam_type': 'coding', 'teacher_id': tid, 'student_id': sid, 'question_ids': [q2]
+        })
+        self.assertEqual(r_fail_mod.status_code, 400)
+        self.assertIn("already started", r_fail_mod.get_json()['error'])
+        
+        # Teacher attempts to reset assignment after attempt started -> MUST FAIL
+        r_fail_reset = self.client.post('/api/assignments/reset', json={
+            'exam_key': exam_key, 'exam_type': 'coding', 'teacher_id': tid, 'student_id': sid
+        })
+        self.assertEqual(r_fail_reset.status_code, 400)
+        self.assertIn("already started", r_fail_reset.get_json()['error'])
+        self.logout()
+        print("  -> [PASS] Audit 6: Assignment modifications and resets blocked post-start.")
 
 if __name__ == '__main__':
     unittest.main()

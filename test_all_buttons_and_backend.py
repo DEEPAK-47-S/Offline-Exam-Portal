@@ -1,7 +1,49 @@
-import sys, time, json
+import sys, time, json, os, tempfile, atexit
 if hasattr(sys.stdout, 'reconfigure'):
     sys.stdout.reconfigure(encoding='utf-8')
 import app as a
+
+# -------------------------------------------------------------
+# MANDATORY TEST ISOLATION: TEMPORARY TEST DATABASE
+# Never touch or modify the production exam_lab.db
+# -------------------------------------------------------------
+temp_db_fd, temp_db_path = tempfile.mkstemp(suffix=".db", prefix="test_audit_")
+os.close(temp_db_fd)
+
+a.app.config['TESTING'] = True
+a.app.config['WTF_CSRF_ENABLED'] = False
+a.app.config['DATABASE_PATH'] = temp_db_path
+a.init_db(temp_db_path)
+
+def cleanup_temp_db():
+    a.app.config['DATABASE_PATH'] = None
+    for p in (temp_db_path, temp_db_path + "-wal", temp_db_path + "-shm"):
+        if os.path.exists(p):
+            try:
+                os.remove(p)
+            except Exception:
+                pass
+
+atexit.register(cleanup_temp_db)
+
+# Seed synthetic test users inside isolated test database
+c = a.conn()
+c.execute("INSERT OR REPLACE INTO users (username, name, role, password_hash) VALUES (?, ?, ?, ?)",
+          ('teacher', 'Exam Teacher', 'teacher', a.generate_password_hash('Teacher123!')))
+t_uid = c.execute("SELECT id FROM users WHERE username='teacher'").fetchone()['id']
+c.execute("INSERT OR REPLACE INTO teacher_profiles (user_id, department, class, year, section) VALUES (?, 'CSE', 'CSE-A', '3', 'A')", (t_uid,))
+
+c.execute("INSERT OR REPLACE INTO users (username, name, role, password_hash) VALUES (?, ?, ?, ?)",
+          ('admin', 'Exam Admin', 'admin', a.generate_password_hash('Admin123!')))
+
+c.execute("INSERT OR REPLACE INTO users (username, name, role, password_hash) VALUES (?, ?, ?, ?)",
+          ('28', 'Student 28', 'student', a.generate_password_hash('28')))
+s28_uid = c.execute("SELECT id FROM users WHERE username='28'").fetchone()['id']
+c.execute("INSERT OR REPLACE INTO student_profiles (user_id, register_number, department, year, class, semester, section) VALUES (?, 'REG28', 'CSE', '3', 'CSE-A', '6', 'A')", (s28_uid,))
+c.execute("INSERT OR REPLACE INTO exam_access (user_id, teacher_id, allowed, violations) VALUES (?, ?, 1, 0)",
+          (s28_uid, t_uid))
+c.commit()
+c.close()
 
 passed_count = 0
 failed_tests = []
@@ -20,6 +62,7 @@ def run_test(name, fn):
 
 print("================================================================")
 print("COMPREHENSIVE AUDIT: TESTING ALL BUTTONS, ROUTES & TAB SWITCHES")
+print(f"ISOLATED TEST DATABASE: {temp_db_path}")
 print("================================================================")
 
 # -------------------------------------------------------------
@@ -31,10 +74,7 @@ def t_auth_routes():
     r = client.post('/api/login', json={'username': 'fake_user', 'password': 'wrong'})
     assert r.status_code == 401, "Invalid login should return 401"
     
-    # Valid student login (reset password for clean test)
-    c = a.conn()
-    c.execute("UPDATE users SET password_hash=? WHERE username='28'", (a.generate_password_hash('28'),))
-    c.commit(); c.close()
+    # Valid synthetic student login
     r = client.post('/api/login', json={'username': '28', 'password': '28'})
     assert r.status_code == 200
     assert r.get_json()['role'] == 'student'
@@ -60,11 +100,7 @@ t_case_id = None
 active_exam_code = None
 def t_teacher_crud():
     global t_qid, t_case_id, active_exam_code
-    # Teacher login
-    c = a.conn()
-    c.execute("UPDATE users SET password_hash=? WHERE username='teacher'", (a.generate_password_hash('Teacher123!'),))
-    c.commit(); c.close()
-    
+    # Teacher login with synthetic test account
     r = teacher_client.post('/api/login', json={'username': 'teacher', 'password': 'Teacher123!'})
     assert r.status_code == 200, f"Teacher login: {r.get_json()}"
     
@@ -119,7 +155,7 @@ def t_student_code_workflow():
     
     # Unlock student in DB for fresh test
     c = a.conn()
-    c.execute("UPDATE exam_access SET locked=0, violations=0, last_violation_at=0, joined_at=NULL, final_score=NULL WHERE user_id=11")
+    c.execute("UPDATE exam_access SET locked=0, violations=0, last_violation_at=0, joined_at=NULL, final_score=NULL WHERE user_id=?", (s28_uid,))
     c.commit(); c.close()
     
     # Join with active exam key
@@ -141,7 +177,7 @@ def t_student_code_workflow():
     assert r.status_code == 200
     assert r.get_json()['score'] == 5.0
     
-    # Submit code
+    # Submit code (backend calculates authoritative score)
     r = s_client.post('/api/submit', json={'question_id': t_qid, 'language': 'python', 'code': code_sol, 'score': 5.0})
     assert r.status_code == 200
     assert r.get_json()['live_score'] == 5.0
@@ -252,6 +288,22 @@ c_qid = None
 java_qid = None
 def t_c_and_java_execution():
     global c_qid, java_qid
+    # Teacher adds a C question
+    r = teacher_client.post('/api/questions', json={'title': 'C Double Value', 'prompt': 'Print double of integer', 'language': 'c'})
+    assert r.status_code == 200
+    questions = teacher_client.get('/api/questions').get_json()
+    q_c = next(q for q in questions if q['title'] == 'C Double Value')
+    c_qid = q_c['id']
+    teacher_client.post('/api/test-cases', json={'question_id': c_qid, 'input_data': '15', 'expected_output': '30', 'marks': 10.0, 'visible': True})
+
+    # Teacher adds a Java question
+    r = teacher_client.post('/api/questions', json={'title': 'Java Square Value', 'prompt': 'Print square of integer', 'language': 'java'})
+    assert r.status_code == 200
+    questions = teacher_client.get('/api/questions').get_json()
+    q_java = next(q for q in questions if q['title'] == 'Java Square Value')
+    java_qid = q_java['id']
+    teacher_client.post('/api/test-cases', json={'question_id': java_qid, 'input_data': '7', 'expected_output': '49', 'marks': 10.0, 'visible': True})
+
     # Teacher starts coding exam
     r = teacher_client.post('/api/exam/start_coding', json={'minutes': 45})
     assert r.status_code == 200
@@ -260,7 +312,8 @@ def t_c_and_java_execution():
 
     # Unlock student in DB for fresh test
     c = a.conn()
-    c.execute("UPDATE exam_access SET locked=0, violations=0, last_violation_at=0, joined_at=NULL, final_score=NULL WHERE user_id=11")
+    c.execute("UPDATE exam_access SET locked=0, violations=0, last_violation_at=0, joined_at=NULL, final_score=NULL WHERE user_id=?", (s28_uid,))
+    c.execute("DELETE FROM student_question_assignments WHERE student_id=?", (s28_uid,))
     c.commit(); c.close()
 
     # Student joins coding exam
@@ -272,14 +325,6 @@ def t_c_and_java_execution():
     r = s_client.post('/api/submit', json={'question_id': t_qid, 'language': 'python', 'code': code_sol, 'score': 5.0})
     assert r.status_code == 200
 
-    # Teacher adds a C question
-    r = teacher_client.post('/api/questions', json={'title': 'C Double Value', 'prompt': 'Print double of integer', 'language': 'c'})
-    assert r.status_code == 200
-    questions = teacher_client.get('/api/questions').get_json()
-    q_c = next(q for q in questions if q['title'] == 'C Double Value')
-    c_qid = q_c['id']
-    teacher_client.post('/api/test-cases', json={'question_id': c_qid, 'input_data': '15', 'expected_output': '30', 'marks': 10.0, 'visible': True})
-
     # Student verifies C solution
     c_code = "#include <stdio.h>\nint main(){int n; if(scanf(\"%d\", &n)==1) printf(\"%d\", n*2); return 0;}"
     r = s_client.post('/api/verify', json={'question_id': c_qid, 'language': 'c', 'code': c_code})
@@ -289,14 +334,6 @@ def t_c_and_java_execution():
     # Student submits C solution
     r = s_client.post('/api/submit', json={'question_id': c_qid, 'language': 'c', 'code': c_code, 'score': 10.0})
     assert r.status_code == 200
-
-    # Teacher adds a Java question
-    r = teacher_client.post('/api/questions', json={'title': 'Java Square Value', 'prompt': 'Print square of integer', 'language': 'java'})
-    assert r.status_code == 200
-    questions = teacher_client.get('/api/questions').get_json()
-    q_java = next(q for q in questions if q['title'] == 'Java Square Value')
-    java_qid = q_java['id']
-    teacher_client.post('/api/test-cases', json={'question_id': java_qid, 'input_data': '7', 'expected_output': '49', 'marks': 10.0, 'visible': True})
 
     # Student verifies Java solution
     java_code = "import java.util.Scanner;\npublic class Solution { public static void main(String[] args){ Scanner sc=new Scanner(System.in); if(sc.hasNextInt()){ System.out.print(sc.nextInt()*7); } } }"
@@ -380,7 +417,7 @@ def t_mcq_workflow():
 
     # Student joins MCQ exam
     c = a.conn()
-    c.execute("UPDATE exam_access SET mcq_locked=0 WHERE user_id=11")
+    c.execute("UPDATE exam_access SET mcq_locked=0 WHERE user_id=?", (s28_uid,))
     c.commit(); c.close()
 
     r = s_client.post('/api/exam/join', json={'access_code': mcq_access_code})
@@ -419,12 +456,13 @@ def t_clear_keys_and_extras():
     assert r.status_code == 200
     # Reset back
     teacher_client.post('/api/change_password', json={'password': 'Teacher123!'})
+run_test("10. Clear Keys & Password Change", t_clear_keys_and_extras)
+
 # -------------------------------------------------------------
 # 11. PLAGIARISM DETECTOR, SCORECARD & DUAL MONITOR ANTI-CHEAT
 # -------------------------------------------------------------
 def t_new_features():
     # 1. External Display detection in anti-cheat activity endpoint
-    # Login as student 28 (password was reset to '2828' in test 2)
     s_client = a.app.test_client()
     login_res = s_client.post('/api/login', json={'username': '28', 'password': '2828'})
     assert login_res.status_code == 200, f"Student login failed: {login_res.get_json()}"
@@ -459,24 +497,6 @@ def t_new_features():
 
 run_test("11. Plagiarism Checker, Student Result Scorecard & Dual Monitor Anti-Cheat", t_new_features)
 
-# -------------------------------------------------------------
-# 12. CLEANUP TEMP TEST DATA
-# -------------------------------------------------------------
-def t_cleanup():
-    c = a.conn()
-    all_qids = [qid for qid in (t_qid, c_qid, java_qid) if qid]
-    if all_qids:
-        placeholders = ','.join('?' for _ in all_qids)
-        c.execute(f"DELETE FROM test_cases WHERE question_id IN ({placeholders})", all_qids)
-        c.execute(f"DELETE FROM submissions WHERE question_id IN ({placeholders})", all_qids)
-        c.execute(f"DELETE FROM drafts WHERE question_id IN ({placeholders})", all_qids)
-        c.execute(f"DELETE FROM questions WHERE id IN ({placeholders})", all_qids)
-    if mcq_id:
-        c.execute("DELETE FROM mcq_status WHERE mcq_id=?", (mcq_id,))
-        c.execute("DELETE FROM mcqs WHERE id=?", (mcq_id,))
-    c.commit(); c.close()
-run_test("11. Cleanup Temporary Test Data", t_cleanup)
-
 print("================================================================")
 print(f"AUDIT COMPLETE: {passed_count} PASSED, {len(failed_tests)} FAILED")
 print("================================================================")
@@ -486,4 +506,3 @@ if failed_tests:
     sys.exit(1)
 else:
     print("ALL BUTTONS, ROUTES, ANTI-CHEAT & TAB SWITCH SYSTEMS 100% OPERATIONAL! 🚀")
-

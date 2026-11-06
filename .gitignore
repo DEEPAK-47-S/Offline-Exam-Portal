@@ -17,6 +17,8 @@ __pycache__/
 backups/
 exam_databases/
 .remote-code-express/
+exam_lab.db
+*.db
 *.db-wal
 *.db-shm
 

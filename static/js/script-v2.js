@@ -2964,22 +2964,6 @@ window.filterPlagiarismList = (filter) => {
 
 
 
-// ==================== STUDENT PREV / NEXT NAVIGATION ====================
-
-window.navPrevQuestion = () => {
-  const sel = $("#questionSelect");
-  if (!sel || sel.selectedIndex <= 0) return;
-  sel.selectedIndex -= 1;
-  loadQ();
-};
-
-window.navNextQuestion = () => {
-  const sel = $("#questionSelect");
-  if (!sel || sel.selectedIndex >= sel.options.length - 1) return;
-  sel.selectedIndex += 1;
-  loadQ();
-};
-
 // ==================== INDIVIDUAL STUDENT QUESTION ASSIGNMENT CONTROLLER ====================
 
 const assignmentState = {
