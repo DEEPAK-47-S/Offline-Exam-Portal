@@ -4,16 +4,16 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>NIET EXAM - Nehru Institute of Engineering and Technology</title>
-  <link rel="stylesheet" href="{{ url_for('static',filename='css/style.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static',filename='css/style.css') }}?v=22">
 </head>
 <body>
-  <canvas id="bg-canvas"></canvas>
-  <div class="blob blob-1"></div><div class="blob blob-2"></div><div class="blob blob-3"></div><div class="cursor-glow" id="cursorGlow"></div>
+  
+  <div class="cursor-glow" id="cursorGlow"></div>
 
   <div id="leavePrompt" class="fs-prompt hidden">
     <div class="fs-prompt-card">
       <b>Are you sure you want to leave the exam?</b>
-      <p>Your Audio and Video is being recorded, so don't involve any illegal activity.</p>
+      <p>Leaving will submit your current solutions and finalize your exam session. You will not be able to re-enter the examination after leaving.</p>
       <div style="display:flex;gap:12px;justify-content:center;margin-top:20px;">
         <button id="leaveNoBtn" class="btn btn-ghost">NO</button>
         <button id="leaveYesBtn" class="btn btn-primary" style="background:#e11d48;box-shadow:none;">YES</button>
@@ -24,7 +24,7 @@
   <div id="warningModal" class="fs-prompt hidden" style="z-index: 10000;">
     <div class="fs-prompt-card" style="text-align: center;">
       <h3 style="color: #e11d48; margin-top: 0;">WARNING</h3>
-      <p>Please Don't Involve In Any Unwanted Illegal Activity , Audio and Screen is Recorded , So Be CAREFULL</p>
+      <p>This exam monitors fullscreen status, tab switching, window focus, and selected keyboard activity. No audio or video recording is performed.</p>
       <button id="warningOkBtn" class="btn btn-primary" style="margin-top: 15px;">OK</button>
     </div>
   </div>
@@ -34,6 +34,32 @@
       <b>Fullscreen exited</b>
       <p>This has been recorded as a violation. You must return to fullscreen to continue the exam.</p>
       <button id="fsResumeBtn" class="btn btn-primary">Return to fullscreen</button>
+    </div>
+  </div>
+
+  <!-- Extension Blocking Modal -->
+  <div id="extPrompt" class="fs-prompt hidden" style="z-index: 10002;">
+    <div class="fs-prompt-card panel glass" style="max-width: 460px; padding: 32px 28px; text-align: center; border: 1px solid rgba(239,68,68,0.4); box-shadow: 0 20px 50px rgba(0,0,0,0.5);">
+      <div style="font-size: 2.5rem; margin-bottom: 8px;">🚨</div>
+      <b style="font-size: 1.25rem; color: #ef4444; margin-bottom: 10px; display: block;">UNAUTHORIZED EXTENSION DETECTED</b>
+      <p style="color: var(--text-1); font-size: 0.9rem; line-height: 1.5; margin-bottom: 18px;">
+        Active browser extensions are installed. You must disable or remove <b>ALL</b> extensions in your browser settings (<code>chrome://extensions</code>) before you can continue your exam.
+      </p>
+      <div id="extPromptStatus" style="font-size: 0.85rem; color: #eab308; margin-bottom: 14px; display:none;"></div>
+      <button id="extRecheckBtn" class="btn btn-primary" onclick="recheckExtensions()" style="width: 100%; padding: 12px; font-weight: 700; background: #ef4444; border: none; border-radius: 10px; cursor:pointer;">🔄 Re-Check &amp; Re-Verify (Refresh Website)</button>
+    </div>
+  </div>
+
+  <!-- Dual/External Monitor Blocker Modal -->
+  <div id="externalMonitorPrompt" class="fs-prompt hidden" style="z-index: 10003;">
+    <div class="fs-prompt-card panel glass" style="max-width: 480px; padding: 32px 28px; text-align: center; border: 1.5px solid rgba(239,68,68,0.5); box-shadow: 0 20px 50px rgba(0,0,0,0.6);">
+      <div style="font-size: 2.8rem; margin-bottom: 10px;">🖥️⚡</div>
+      <b style="font-size: 1.25rem; color: #ef4444; margin-bottom: 10px; display: block;">EXTERNAL / DUAL MONITOR DETECTED</b>
+      <p style="color: var(--text-1); font-size: 0.9rem; line-height: 1.5; margin-bottom: 18px;">
+        A secondary display or HDMI monitor has been detected. Multiple displays are strictly prohibited during the examination. Please <b>disconnect the external display</b> or press <b>Win + P</b> and select <b>"PC screen only"</b> to continue.
+      </p>
+      <div id="monitorPromptStatus" style="font-size: 0.85rem; color: #eab308; margin-bottom: 14px;">Secondary monitor active</div>
+      <button id="monitorRecheckBtn" class="btn btn-primary" onclick="recheckExternalMonitors()" style="width: 100%; padding: 12px; font-weight: 700; background: #ef4444; border: none; border-radius: 10px; cursor:pointer;">🔄 Re-Check &amp; Resume Exam</button>
     </div>
   </div>
 
@@ -54,37 +80,125 @@
       <div class="login-right">
         <div class="glass login-card">
           <div class="brand">NIET <span>EXAM</span></div>
-          <h1>Sign in to your exam</h1>
+          <h1>Sign in </h1>
           <p>Use your registered number and password.</p>
           <form id="loginForm">
             <input id="username" required placeholder="Registration / staff / admin username">
-            <input id="password" required type="password" placeholder="Password">
+            <div style="position:relative;display:grid;"><input id="password" required type="password" placeholder="Password" style="padding-right:42px;"><button type="button" onclick="var e=document.getElementById('password');e.type=e.type==='password'?'text':'password';" style="position:absolute;right:10px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;font-size:18px;color:var(--text-2);padding:0;min-height:unset;">👁</button></div>
             <button class="btn btn-primary">Continue</button>
           </form>
           <div id="loginError"></div>
-          <small>Student, teacher, and admin access is controlled locally.</small>
+        </div>
+      </div>
+    </div>
+
+      </main>
+
+  <main id="student-home" class="exam-app hidden" style="background:radial-gradient(circle at 50% 20%, rgba(109,91,208,0.15) 0%, transparent 60%), var(--bg-0, #0b0e1e); min-height:100vh;">
+    <header class="student-header">
+      <div class="header-section-left">
+        <span id="studentHomeName" class="student-header-name"></span>
+      </div>
+      <div class="header-section-center">
+        <img src="{{ url_for('static',filename='img/niet-header.png') }}" alt="NIET Header" class="site-header-banner">
+      </div>
+      <div class="header-section-right">
+        <button class="theme-toggle student-header-circle-btn" onclick="toggleTheme()" title="Toggle Theme">🌓</button>
+        <button class="btn btn-ghost student-header-btn" onclick="logout()" style="color:var(--danger); border-color:var(--danger);">Exit</button>
+      </div>
+    </header>
+
+    <!-- Pre-Exam Extension Alert (TOP OF PAGE - Highly Visible) -->
+    <div id="homeExtensionBanner" style="display:none; max-width: 680px; margin: 20px auto 0; padding: 18px 22px; border-radius: 14px; background: linear-gradient(135deg, rgba(239,68,68,0.18), rgba(239,68,68,0.08)); border: 1.5px solid rgba(239, 68, 68, 0.45); color: #ef4444; box-shadow: 0 8px 30px rgba(239,68,68,0.22);">
+      <div style="display:flex; gap:14px; align-items:flex-start;">
+        <span style="font-size: 2rem; line-height: 1; flex-shrink: 0; filter: drop-shadow(0 2px 6px rgba(239,68,68,0.4));">🚨</span>
+        <div style="flex:1;">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 6px;">
+            <b style="font-size: 1.05rem; font-weight: 800; letter-spacing: 0.3px; color: #ef4444;">UNAUTHORIZED BROWSER EXTENSIONS DETECTED!</b>
+            <span style="background: rgba(239,68,68,0.2); padding: 3px 10px; border-radius: 999px; font-size: 0.75rem; font-weight: 700; border: 1px solid rgba(239,68,68,0.4);">ACTION REQUIRED</span>
+          </div>
+          <p style="margin: 0 0 10px 0; font-size: 0.9rem; line-height: 1.5; color: var(--text-0);">
+            Active browser extensions are installed. You must disable or remove <b>ALL</b> extensions in your browser settings (<code style="background:rgba(0,0,0,0.3); padding:2px 6px; border-radius:4px; font-family:monospace;">chrome://extensions</code>) before entering the examination.
+          </p>
+          <div style="font-size: 0.82rem; color: var(--text-2); opacity: 0.9; line-height: 1.4; border-top: 1px dashed rgba(239,68,68,0.3); padding-top: 8px;">
+            ⚠️ <b>Note:</b> Entering with extensions active will register an anti-cheat violation strike with your invigilator.
+          </div>
+          <div style="margin-top: 12px;">
+            <button class="btn btn-primary" onclick="recheckExtensions()" style="padding: 10px 20px; font-size: 0.9rem; font-weight: 700; background: #ef4444; border: none; border-radius: 8px; cursor:pointer; box-shadow: 0 4px 12px rgba(239,68,68,0.3);">🔄 Re-Check &amp; Re-Verify (Refresh Website)</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div style="display:flex; flex-direction:column; justify-content:center; align-items:center; min-height:calc(100vh - 220px); padding: 20px;">
+      <div class="glass panel" style="text-align:center; padding: 36px 28px; width: 380px; max-width:92vw; border-radius: 18px; box-shadow: 0 12px 35px rgba(0,0,0,0.2); border: 1px solid var(--glass-border); position: relative;">
+        
+        <h2 style="font-size: 1.45rem; font-weight: 700; margin: 0 0 8px 0; color: var(--text-0);">Enter Exam Key</h2>
+        <p style="color: var(--text-2); font-size: 0.88rem; margin: 0 0 24px 0; line-height: 1.4;">Enter the 6-digit passcode provided by your invigilator.</p>
+
+        <!-- Exam Key Input -->
+        <div style="position:relative; margin-bottom: 20px;">
+          <input id="homeExamKey" maxlength="6" placeholder="• • • • • •" autocomplete="off" spellcheck="false"
+                 style="width:100%; box-sizing:border-box; padding: 14px 16px; text-align:center; font-size: 1.3rem; font-weight: 700; letter-spacing: 8px; border-radius: 12px; border: 1.5px solid var(--glass-border); background: var(--bg-1, rgba(255,255,255,0.05)); color: var(--text-0); outline:none; transition: all 0.2s ease; box-shadow: inset 0 2px 4px rgba(0,0,0,0.05);"
+                 onfocus="this.style.borderColor='var(--accent-1, #0d9488)'; this.style.boxShadow='0 0 0 3px rgba(13,148,136,0.2)';"
+                 onblur="this.style.borderColor='var(--glass-border)'; this.style.boxShadow='inset 0 2px 4px rgba(0,0,0,0.05)';">
+        </div>
+
+        <!-- Join Exam Button -->
+        <button id="homeJoinExam" class="btn btn-primary" onclick="joinExam()"
+                style="width:100%; padding: 13px; font-size: 1rem; font-weight: 700; border-radius: 10px; display:flex; justify-content:center; align-items:center; gap:8px; cursor:pointer; transition: all 0.2s ease; box-shadow: 0 4px 15px rgba(13,148,136,0.3);">
+          Enter Examination 🚀
+        </button>
+
+        <!-- View Scorecard Button -->
+        <button id="viewScorecardBtn" class="btn btn-ghost" onclick="openStudentResultModal()" 
+                style="width:100%; margin-top:14px; padding:12px 14px; font-size:0.92rem; font-weight:700; border-radius:10px; border:1px solid var(--accent-1); color:var(--accent-1); display:none; cursor:pointer;">
+          📋 View My Exam Scorecard &amp; Result
+        </button>
+
+        <!-- Dynamic Status Message / Waiting Pill -->
+        <div id="homeGateMessage" 
+             style="margin-top: 16px; padding: 12px 14px; border-radius: 10px; background: rgba(234,179,8,0.1); border: 1px solid rgba(234,179,8,0.25); color: #eab308; font-size: 0.86rem; font-weight: 600; display:flex; align-items:center; justify-content:center; gap:8px;">
+          <span style="display:inline-block; width:8px; height:8px; border-radius:50%; background: #eab308; animation: pulse 1.8s infinite;"></span>
+          <span>Awaiting teacher confirmation</span>
         </div>
       </div>
     </div>
   </main>
 
   <main id="student" class="exam-app hidden">
-    <header class="site-nav glass">
-      <b><img src="{{ url_for('static',filename='img/niet-logo.jpg') }}" alt="Logo" style="height: 30px; vertical-align: middle; margin-right: 10px;">NIET <small>Nehru Institute of Engineering and Technology</small></b>
-      <span id="studentName"></span>
-      <span id="examTimer" class="timer-pill">Waiting</span>
-      <button class="theme-toggle" onclick="toggleTheme()">Mode</button>
-      <button id="studentExit" class="icon-btn" onclick="logout()">Exit</button>
+    <header class="student-header">
+      <div class="header-section-left">
+        <span id="studentName" class="student-header-name"></span>
+      </div>
+      <div class="header-section-center">
+        <img src="{{ url_for('static',filename='img/niet-header.png') }}" alt="NIET Header" class="site-header-banner">
+      </div>
+      <div class="header-section-right">
+        <span id="examTimer" class="timer-pill" style="margin: 0; font-weight: 700; white-space:nowrap;">Waiting</span>
+        <button class="theme-toggle student-header-circle-btn" onclick="toggleTheme()" title="Toggle Theme">🌓</button>
+      </div>
     </header>
     <section class="exam-shell glass">
       <aside>
-        <label>ACTIVE QUESTIONS</label>
-        <div id="examGate" class="exam-gate">
-          <input id="examKey" maxlength="6" placeholder="Enter 6 digit exam key">
-          <button id="joinExam" class="btn btn-primary">Enter Exam</button>
-          <small id="gateMessage">Wait for the teacher to start the exam.</small>
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+          <label style="margin:0; font-weight:700; font-size:0.82rem; letter-spacing:0.5px;">QUESTION PALETTE</label>
+          <span id="paletteCount" style="font-size:0.75rem; color:var(--accent-1); font-weight:700;"></span>
         </div>
-        <select id="questionSelect"></select>
+        <div id="questionPalette" class="question-palette-grid"></div>
+        <div class="palette-legend">
+          <span class="legend-item"><span class="legend-dot dot-submitted"></span> Solved</span>
+          <span class="legend-item"><span class="legend-dot dot-review"></span> Review</span>
+          <span class="legend-item"><span class="legend-dot dot-active"></span> Active</span>
+          <span class="legend-item"><span class="legend-dot dot-unsolved"></span> Unsolved</span>
+        </div>
+        <hr style="border:none; border-top:1px solid var(--glass-border); margin:10px 0;">
+        <label>ACTIVE QUESTIONS</label>
+        <div style="display:flex; gap:6px; align-items:center; margin-bottom:8px;">
+          <button type="button" id="prevQuestionBtn" class="btn btn-ghost" onclick="navPrevQuestion()" title="Previous Question" style="padding:6px 12px; font-weight:700;">◀ Prev</button>
+          <select id="questionSelect" style="flex:1; margin:0;"></select>
+          <button type="button" id="nextQuestionBtn" class="btn btn-ghost" onclick="navNextQuestion()" title="Next Question" style="padding:6px 12px; font-weight:700;">Next ▶</button>
+        </div>
         <article id="questionText">No question is available.</article>
         <div class="profile">
           <b>My Profile</b>
@@ -97,6 +211,7 @@
           <span class="editor-title">Code Editor</span>
           <select id="language" aria-label="Language"><option value="python">Python</option><option value="java">Java</option><option value="c">C</option></select>
           <span class="save-state" id="saveState">Locked</span>
+          <button id="markReviewButton" class="run-btn review-btn" onclick="toggleMarkForReview()" title="Mark this question for review" style="background:rgba(168,85,247,0.18); color:#c084fc; border:1px solid rgba(168,85,247,0.4);">📌 Mark for Review</button>
           <button id="runButton" class="run-btn" onclick="runCode()">Run</button>
           <button id="verifyButton" class="run-btn secondary" onclick="verifyCode()">Verify</button>
           <button id="submitButton" class="icon-btn submit" onclick="submitCode()">Submit</button>
@@ -106,74 +221,119 @@
           <div class="line-numbers" id="gutter">1</div>
           <div class="code-layer"><pre id="highlight" aria-hidden="true" tabindex="-1" contenteditable="false"></pre><textarea id="code" spellcheck="false" autocomplete="off" autocapitalize="off" autocorrect="off" placeholder="# Write your answer here"></textarea></div>
         </div>
-        <div class="terminal">
-          <div class="io-topbar"><b>Console</b><span id="status"></span></div>
+        <div class="terminal" id="terminalPanel">
+          <div class="io-topbar console-drag-handle" id="consoleDragHandle" title="Drag to resize console"><b>Console ↕</b><span id="status"></span></div>
           <pre id="output" class="output-console">Enter the exam key to unlock the editor.<span id="termLive" class="term-live" contenteditable="false" spellcheck="false"></span></pre>
+          <div class="test-results-drag" id="testResultsDragHandle" title="Drag to resize test results">Test Results ↕</div>
           <div id="testResults" class="test-results"></div>
         </div>
       </div>
     </section>
-  </main>
+
+      </main>
 
   <main id="student-mcq" class="exam-app hidden">
-    <header class="site-nav glass">
-      <b><img src="{{ url_for('static',filename='img/niet-logo.jpg') }}" alt="Logo" style="height: 30px; vertical-align: middle; margin-right: 10px;">NIET EXAM</b>
-      <span id="studentMcqName"></span>
-      <span id="mcqTimer" class="timer-pill">Waiting</span>
-      <button class="theme-toggle" onclick="toggleTheme()">Mode</button>
-      <button id="studentMcqExit" class="icon-btn" onclick="logout()">Exit</button>
+    <header class="student-header">
+      <div class="header-section-left">
+        <span id="studentMcqName" class="student-header-name"></span>
+      </div>
+      <div class="header-section-center">
+        <img src="{{ url_for('static',filename='img/niet-header.png') }}" alt="NIET Header" class="site-header-banner">
+      </div>
+      <div class="header-section-right">
+        <span id="mcqTimer" class="timer-pill" style="margin: 0; font-weight: 700; white-space:nowrap;">Waiting</span>
+        <button class="theme-toggle student-header-circle-btn" onclick="toggleTheme()" title="Toggle Theme">🌓</button>
+      </div>
     </header>
-    <section class="exam-shell glass" style="display:flex; justify-content:center; align-items:center; flex-direction:column; padding: 2rem;">
-        <div id="mcqContainer" style="width:100%; max-width:800px; display:none;">
-            <h2 id="mcqQuestionText" style="margin-bottom: 2rem;"></h2>
-            <div id="mcqOptions" style="display:flex; flex-direction:column; gap:1rem;">
-                <button class="btn btn-ghost" id="mcqOptA" onclick="submitMcqAnswer('a')">A. <span id="mcqTextA"></span></button>
-                <button class="btn btn-ghost" id="mcqOptB" onclick="submitMcqAnswer('b')">B. <span id="mcqTextB"></span></button>
-                <button class="btn btn-ghost" id="mcqOptC" onclick="submitMcqAnswer('c')">C. <span id="mcqTextC"></span></button>
-                <button class="btn btn-ghost" id="mcqOptD" onclick="submitMcqAnswer('d')">D. <span id="mcqTextD"></span></button>
+    <section class="exam-shell glass" style="display:flex; justify-content:center; align-items:flex-start; flex-direction:column; padding: 2rem; width:55vw; max-width:55vw; min-width:0; box-sizing:border-box; margin: 0 auto; overflow:hidden;">
+
+        <div id="mcqContainer" style="width:100%; max-width:100%; display:none; box-sizing:border-box; overflow:hidden;">
+            <h2 id="mcqQuestionText" style="margin-bottom: 2rem; word-wrap:break-word; overflow-wrap:anywhere; white-space:normal;"></h2>
+            <div id="mcqOptions" style="display:flex; flex-direction:column; gap:1rem; width:100%;">
+                <button class="btn btn-ghost" id="mcqOptA" onclick="submitMcqAnswer('a')" style="white-space:normal;text-align:left;">A. <span id="mcqTextA"></span></button>
+                <button class="btn btn-ghost" id="mcqOptB" onclick="submitMcqAnswer('b')" style="white-space:normal;text-align:left;">B. <span id="mcqTextB"></span></button>
+                <button class="btn btn-ghost" id="mcqOptC" onclick="submitMcqAnswer('c')" style="white-space:normal;text-align:left;">C. <span id="mcqTextC"></span></button>
+                <button class="btn btn-ghost" id="mcqOptD" onclick="submitMcqAnswer('d')" style="white-space:normal;text-align:left;">D. <span id="mcqTextD"></span></button>
             </div>
         </div>
-        <div id="mcqFinished" style="display:none; text-align:center;">
-            <h2>MCQ Exam Finished</h2>
-            <button class="btn btn-primary" onclick="leaveExam()">Leave Exam</button>
+        <div id="mcqFinished" style="display:none; text-align:center; width:100%;">
+            <h2>MCQ Exam Finished! ✅</h2>
+            <p style="color:var(--text-2);">Your MCQ score has been saved.</p>
+            <button class="btn btn-primary" onclick="mcqDone()">Go to Home</button>
         </div>
     </section>
-  </main>
 
-    <main id="teacher" class="portal hidden">
-    <div class="teacher-wrap" style="width: 100%; max-width: 65vw; margin: 0 auto;">
-      <header class="site-nav glass">
-        <b><img src="{{ url_for('static',filename='img/niet-logo.jpg') }}" alt="Logo" style="height: 30px; vertical-align: middle; margin-right: 10px;">NIET <small>Nehru Institute of Engineering and Technology - Teacher</small></b>
-        <span id="teacherName"></span>
-        <button class="theme-toggle" onclick="toggleTheme()">Mode</button>
-        <button class="icon-btn" onclick="logout()">Exit</button>
+      </main>
+
+  <!-- ==================== TEACHER PORTAL ==================== -->
+  <main id="teacher" class="portal hidden">
+    <div class="teacher-wrap" style="width: 75%; max-width: 1300px; margin: 0 auto; padding-bottom: 50px;">
+      <header class="teacher-header">
+        <div class="header-section-left">
+          <span class="portal-role-badge">TEACHER</span>
+          <span id="teacherName" class="teacher-header-name"></span>
+        </div>
+        <div class="header-section-center">
+          <img src="{{ url_for('static',filename='img/niet-header.png') }}" alt="NIET Header" class="site-header-banner">
+        </div>
+        <div class="header-section-right">
+          <button class="theme-toggle teacher-header-circle-btn" onclick="toggleTheme()" title="Toggle Theme">🌓</button>
+          <button class="btn btn-ghost teacher-header-circle-btn" onclick="showPasswordModal()" style="border-radius:12px !important;" title="Change Password">⚙️</button>
+          <button class="btn btn-ghost teacher-header-btn" onclick="logout()" style="color:var(--danger); border-color:var(--danger);">Exit</button>
+        </div>
       </header>
-      
-      <div class="portal-tabs" style="display:flex; gap:10px; margin: 20px 0;">
+      <div id="teacherExtensionAlert" style="display:none; margin: 15px auto; padding: 14px 22px; border-radius: 12px; background: rgba(239,68,68,0.15); border: 1px solid rgba(239,68,68,0.4); color: #ef4444; font-weight: 700; font-size: 0.95rem; align-items: center; gap: 10px;"></div>
+
+      <div class="portal-tabs" style="display:flex; flex-wrap:wrap; justify-content:center; gap:14px; margin: 30px 0 20px 0;">
         <button class="tab-btn btn btn-ghost active" data-target="tab-exam" onclick="showTab('tab-exam')">Exam Control</button>
         <button class="tab-btn btn btn-ghost" data-target="tab-questions" onclick="showTab('tab-questions')">Questions</button>
         <button class="tab-btn btn btn-ghost" data-target="tab-mcqs" onclick="showTab('tab-mcqs')">MCQs</button>
         <button class="tab-btn btn btn-ghost" data-target="tab-students" onclick="showTab('tab-students')">Students</button>
-        <button class="tab-btn btn btn-ghost" data-target="tab-activity" onclick="showTab('tab-activity')">Activity & Leaderboard</button>
+        <button class="tab-btn btn btn-ghost" data-target="tab-activity" onclick="showTab('tab-activity')">Activity &amp; Leaderboard</button>
+        <button class="tab-btn btn btn-ghost" data-target="tab-history" onclick="showTab('tab-history'); loadHistory();">History</button>
+        <button class="tab-btn btn btn-ghost" data-target="tab-assignments" onclick="showTab('tab-assignments'); loadAssignmentsUI('teacher');">Question Assignment</button>
       </div>
 
       <div class="tab-content-area" style="width: 100%;">
+        <!-- Exam Control -->
         <section id="tab-exam" class="glass panel portal-tab-content" style="display:block;">
           <h2>Exam control</h2>
           <form id="examForm">
+            <label style="font-size:.8rem;color:var(--text-2);">Duration (minutes)</label>
             <input id="minutes" type="number" min="1" value="60" placeholder="Duration in minutes">
-            <button class="btn btn-primary">Generate code and start exam</button>
-            <button type="button" id="stopExam" class="btn btn-ghost" style="color:var(--danger); border-color:var(--danger);">Stop exam</button>
+            <div style="display:flex;gap:10px;flex-wrap:wrap;">
+              <button type="button" id="startCodingBtn" class="btn btn-primary" style="flex:1;">🖥 Start Coding Exam</button>
+              <button type="button" id="startMcqBtn" class="btn btn-primary" style="flex:1;background:var(--accent-2);">📝 Start MCQ Exam</button>
+            </div>
+            <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:10px;">
+              <button type="button" id="stopExam" class="btn btn-ghost" style="flex:1;color:var(--danger); border-color:var(--danger);">⏹ Stop All Exams</button>
+              <button type="button" id="clearKeysBtn" class="btn btn-ghost" style="flex:1;">🔄 Clear Keys</button>
+            </div>
           </form>
-          <div id="examCode">Exam is not active.</div>
+          <div id="codingCodeDisplay" style="margin-top:10px;padding:10px;border-radius:10px;background:rgba(80,210,180,.13);font-weight:700;color:var(--text-0);display:none;">Coding Key: <span id="codingCodeValue">-</span></div>
+          <div id="mcqCodeDisplay" style="margin-top:8px;padding:10px;border-radius:10px;background:rgba(130,80,210,.13);font-weight:700;color:var(--text-0);display:none;">MCQ Key: <span id="mcqCodeValue">-</span></div>
+          <div id="examCode" style="margin-top:8px;color:var(--text-2);font-size:.85rem;">Exam is not active.</div>
         </section>
 
+        <!-- Questions Tab: Upload CSV/Excel FIRST, then manual -->
         <section id="tab-questions" class="glass panel portal-tab-content" style="display:none;">
-          <h2>Publish a question</h2>
+          <h2>Import Questions (CSV / Excel)</h2>
+          <form id="questionImportForm">
+            <input type="file" id="questionFile" accept=".csv,.xlsx" required>
+            <button class="btn btn-primary">Upload CSV / Excel</button>
+          </form>
+          <small>Columns (flexible): <b>question_name</b>, <b>instruction</b>, language (optional), <b>test_case_1_input</b>, <b>test_case_1_output</b>, <b>test_case_1_mark</b>, test_case_2_input, ...</small>
+          <hr>
+          <h3>Add question manually</h3>
           <form id="questionForm">
             <input id="questionEditId" type="hidden">
             <input id="qtitle" required placeholder="Question title">
-            <select id="qlang"><option value="python">Python</option><option value="java">Java</option><option value="c">C</option></select>
+            <div id="qlangChecks" style="display:flex;gap:15px;align-items:center;padding:5px 0;">
+              <span style="color:var(--text-2);font-size:0.9em;">Languages:</span>
+              <label><input type="checkbox" name="qlang" value="python" checked> Python</label>
+              <label><input type="checkbox" name="qlang" value="java"> Java</label>
+              <label><input type="checkbox" name="qlang" value="c"> C</label>
+            </div>
             <textarea id="qprompt" required placeholder="Question instructions"></textarea>
             <button id="questionSaveButton" class="btn btn-primary">Publish / Update</button>
             <button id="questionCancelEdit" type="button" class="btn btn-ghost hidden">Cancel edit</button>
@@ -194,8 +354,13 @@
           <div id="caseList"></div>
         </section>
 
+        <!-- MCQs Tab: Upload CSV/Excel FIRST, then manual -->
         <section id="tab-mcqs" class="glass panel portal-tab-content" style="display:none;">
-          <h2>Manage MCQs</h2>
+          <h2>Import MCQs (CSV / Excel)</h2>
+          <form id="mcqImportForm"><input type="file" id="mcqFile" accept=".csv,.xlsx" required><button class="btn btn-primary">Upload CSV / Excel</button></form>
+          <small>Required columns: Questions, Option A, Option B, Option C, Option D, Correct Option, Mark, Time.</small>
+          <hr>
+          <h3>Add MCQ manually</h3>
           <form id="mcqForm">
             <input id="mcqEditId" type="hidden">
             <textarea id="mcqQuestion" required placeholder="Question text"></textarea>
@@ -212,23 +377,20 @@
             <button id="mcqCancelEdit" type="button" class="btn btn-ghost hidden">Cancel edit</button>
           </form>
           <div id="mcqList"></div>
-          <hr>
-          <h3>Import MCQs</h3>
-          <form id="mcqImportForm"><input type="file" id="mcqFile" accept=".csv,.xlsx" required><button class="btn btn-ghost">Upload CSV / Excel</button></form>
-          <small>Required columns: Questions, Option A, Option B, Option C, Option D, Correct Option, Mark, Time.</small>
         </section>
 
+        <!-- Students Tab: Upload CSV/Excel FIRST, then manual -->
         <section id="tab-students" class="glass panel portal-tab-content" style="display:none;">
-          <h2>Import students</h2>
+          <h2>Import students (CSV / Excel)</h2>
           <form id="importForm"><input type="file" id="studentFile" accept=".csv,.xlsx" required><button class="btn btn-primary">Upload CSV / Excel</button></form>
-          <small>Required columns: name, registernumber, department, year, semester, section, password.</small>
+          <small>Required columns: name, registernumber, department, year, class, semester, section, password.</small>
           <hr>
           <h3>Add student manually</h3>
           <form id="studentManualForm">
             <input id="studentFullName" required placeholder="Student name">
             <input id="studentRegisterNumber" required placeholder="Register number / username">
-            <input id="studentDepartment" placeholder="Department">
-            <div class="field-row"><input id="studentYear" placeholder="Year"><input id="studentSemester" placeholder="Semester"><input id="studentSection" placeholder="Section"></div>
+            <input id="studentDepartment" placeholder="Department (e.g. CSE, IT, AIDS)">
+            <div class="field-row"><input id="studentYear" placeholder="Year"><input id="studentClass" placeholder="Class"><input id="studentSemester" placeholder="Semester"><input id="studentSection" placeholder="Section (e.g. A, B)"></div>
             <input id="studentPassword" required placeholder="Password">
             <button class="btn btn-primary">Save student</button>
           </form>
@@ -238,46 +400,163 @@
           <div id="studentList" class="student-list">Loading students...</div>
         </section>
 
+        <!-- Activity & Leaderboard Tab -->
         <section id="tab-activity" class="glass panel portal-tab-content" style="display:none;">
-          <h2>Student activity</h2><div id="activity">Loading...</div>
+          <h2 id="activityTitle">Student activity</h2><div id="activity">Loading...</div>
           <hr>
           <h2>Class-wise Leaderboard</h2>
-          <select id="leaderboardClassSelect">
-              <option value="">Select Class ▼</option>
-              <option value="CSE-A">CSE-A</option><option value="CSE-B">CSE-B</option>
-              <option value="AIDS-A">AIDS-A</option><option value="AIDS-B">AIDS-B</option>
-              <option value="CSBS-A">CSBS-A</option><option value="CSBS-B">CSBS-B</option>
-              <option value="IT-A">IT-A</option><option value="IT-B">IT-B</option>
-              <option value="MECH-A">MECH-A</option><option value="MECH-B">MECH-B</option>
-          </select>
+          <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:10px;">
+            <input id="leaderboardClassSearch" placeholder="Filter by dept/class (e.g. CSE, IT, CSE-A)" style="flex:1;min-width:160px;">
+            <button class="btn btn-ghost" onclick="renderDashboard()" style="padding:8px 14px;">&#128269; Search</button>
+            <button class="btn btn-primary" onclick="downloadLeaderboard('csv')" style="padding:8px 14px;">&#11015; CSV</button>
+            <button class="btn btn-primary" onclick="downloadLeaderboard('xlsx')" style="padding:8px 14px;background:var(--accent-2);">&#11015; Excel</button>
+            <button class="btn btn-primary" onclick="openPlagiarismModal()" style="padding:8px 14px; background:linear-gradient(135deg, #7c3aed, #4f46e5); font-weight:700;">🔍 Plagiarism</button>
+          </div>
           <div id="leaderboardContainer" style="margin-top:1rem; overflow-x:auto;">
               <table style="width:100%; border-collapse:collapse; text-align:left;">
-                  <thead><tr><th>Rank</th><th>Student Name</th><th>Reg No</th><th>Class</th><th>Time (s)</th><th>Coding Score</th><th>MCQ Score</th></tr></thead>
+                  <thead><tr><th>Rank</th><th>Student Name</th><th>Reg No</th><th>Dept</th><th>Section</th><th>Time (s)</th><th>Coding Score</th><th>MCQ Score</th></tr></thead>
                   <tbody id="leaderboardTableBody"></tbody>
               </table>
           </div>
         </section>
+        <section id="tab-history" class="glass panel portal-tab-content" style="display:none;">
+          <h2 style="margin-bottom:18px;">Exam History (Teacher)</h2>
+          <div style="border-radius:12px; border:1px solid var(--glass-border); overflow-x:auto;">
+            <table class="data-table" style="width:100%; min-width:820px;">
+              <thead>
+                <tr>
+                  <th style="width:50px;">ID</th>
+                  <th style="width:120px;">Exam Key</th>
+                  <th>Date &amp; Time (IST)</th>
+                  <th style="text-align:center; width:120px;">Students</th>
+                  <th style="text-align:right; width:380px; white-space:nowrap;">Actions</th>
+                </tr>
+              </thead>
+              <tbody id="historyList"></tbody>
+            </table>
+          </div>
+        </section>
+
+        <!-- Individual Student Question Assignment Tab (Teacher) -->
+        <section id="tab-assignments" class="glass panel portal-tab-content" style="display:none;">
+          <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px; margin-bottom:20px;">
+            <div>
+              <h2 style="margin:0; font-size:1.35rem; font-weight:700;">Individual Student Question Assignment</h2>
+              <p style="margin:4px 0 0 0; color:var(--text-2); font-size:0.88rem;">Customize question sets for specific students. Unassigned students receive all common questions.</p>
+            </div>
+            <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
+              <select id="assignmentExamSelect" onchange="onAssignmentExamChange('teacher')" style="padding:8px 12px; border-radius:10px; background:var(--bg-1); color:var(--text-0); border:1px solid var(--glass-border); font-weight:600; min-width:260px;"></select>
+              <button type="button" class="btn btn-ghost" onclick="loadAssignmentsUI('teacher')" style="padding:8px 14px;">🔄 Refresh</button>
+            </div>
+          </div>
+
+          <!-- Assignment Editor Card -->
+          <div class="glass panel" style="background:var(--bg-1, rgba(255,255,255,0.03)); border:1px solid var(--glass-border); border-radius:14px; padding:20px; margin-bottom:24px;">
+            <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap:16px; margin-bottom:18px;">
+              <div>
+                <label style="font-size:0.82rem; font-weight:700; color:var(--text-2); display:block; margin-bottom:6px;">SELECT STUDENT</label>
+                <select id="assignmentStudentSelect" onchange="onAssignmentStudentChange('teacher')" style="width:100%; padding:10px 12px; border-radius:10px; background:var(--bg-0); color:var(--text-0); border:1px solid var(--glass-border); font-size:0.95rem; font-weight:600;"></select>
+              </div>
+              <div>
+                <label style="font-size:0.82rem; font-weight:700; color:var(--text-2); display:block; margin-bottom:6px;">EXAMINATION SUMMARY</label>
+                <div id="assignmentExamSummary" style="padding:10px 12px; border-radius:10px; background:var(--bg-0); border:1px solid var(--glass-border); font-size:0.88rem; color:var(--text-1); min-height:42px; display:flex; align-items:center;">
+                  Select an examination to view questions.
+                </div>
+              </div>
+            </div>
+
+            <!-- Questions Selection Box -->
+            <div style="margin-bottom:18px;">
+              <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+                <div style="display:flex; align-items:center; gap:12px;">
+                  <b style="font-size:0.92rem; color:var(--text-0);">Available Questions:</b>
+                  <span id="assignmentSelectedCount" style="font-size:0.85rem; font-weight:700; color:var(--accent-1); background:rgba(13,148,136,0.15); padding:2px 10px; border-radius:999px;">0 Selected</span>
+                </div>
+                <div style="display:flex; gap:8px;">
+                  <button type="button" class="btn btn-ghost" onclick="assignmentSelectAll(true, 'teacher')" style="padding:5px 12px; font-size:0.82rem;">Select All</button>
+                  <button type="button" class="btn btn-ghost" onclick="assignmentSelectAll(false, 'teacher')" style="padding:5px 12px; font-size:0.82rem;">Clear Selection</button>
+                </div>
+              </div>
+              <div id="assignmentQuestionsList" style="max-height:280px; overflow-y:auto; border:1px solid var(--glass-border); border-radius:10px; padding:12px; background:var(--bg-0); display:flex; flex-direction:column; gap:8px;">
+                <div style="color:var(--text-2); font-size:0.88rem; text-align:center; padding:20px;">Select a student and exam above.</div>
+              </div>
+            </div>
+
+            <!-- Action Buttons -->
+            <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px;">
+              <div style="display:flex; gap:10px;">
+                <button type="button" id="assignmentSaveBtn" class="btn btn-primary" onclick="saveIndividualAssignment('teacher')" style="padding:10px 22px; font-weight:700;">💾 Save Individual Assignment</button>
+                <button type="button" id="assignmentResetBtn" class="btn btn-ghost" onclick="resetIndividualAssignment('teacher')" style="padding:10px 18px; color:var(--danger); border-color:var(--danger);">↺ Reset to Common Questions</button>
+              </div>
+              <div id="assignmentStatusNotice" style="font-size:0.85rem; font-weight:600; color:var(--text-2);"></div>
+            </div>
+          </div>
+
+          <!-- Assignment Management Overview Table -->
+          <div style="margin-top:20px;">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; flex-wrap:wrap; gap:10px;">
+              <h3 style="margin:0; font-size:1.1rem; font-weight:700;">Student Assignment Overview</h3>
+              <input id="assignmentTableSearch" oninput="filterAssignmentOverviewTable('teacher')" placeholder="🔍 Search student by name, reg no, dept..." style="padding:8px 14px; border-radius:10px; border:1px solid var(--glass-border); background:var(--bg-1); color:var(--text-0); font-size:0.88rem; width:280px;">
+            </div>
+            <div style="border-radius:12px; border:1px solid var(--glass-border); overflow-x:auto;">
+              <table class="data-table" style="width:100%; min-width:800px; text-align:left;">
+                <thead>
+                  <tr>
+                    <th style="padding:12px 14px;">Student</th>
+                    <th style="padding:12px 14px;">Reg No</th>
+                    <th style="padding:12px 14px;">Dept / Section</th>
+                    <th style="padding:12px 14px;">Assignment Mode</th>
+                    <th style="padding:12px 14px;">Assigned Questions</th>
+                    <th style="padding:12px 14px; text-align:right;">Actions</th>
+                  </tr>
+                </thead>
+                <tbody id="assignmentOverviewTableBody">
+                  <tr><td colspan="6" style="text-align:center; padding:20px; color:var(--text-2);">Loading assignments...</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+
       </div>
     </div>
-  </main>
 
-    <main id="admin" class="portal hidden">
-    <div class="teacher-wrap" style="width: 100%; max-width: 65vw; margin: 0 auto;">
-      <header class="site-nav glass">
-        <b><img src="{{ url_for('static',filename='img/niet-logo.jpg') }}" alt="Logo" style="height: 30px; vertical-align: middle; margin-right: 10px;">NIET <small>NIT Exam - Admin</small></b>
-        <span id="adminName"></span>
-        <button class="theme-toggle" onclick="toggleTheme()">Mode</button>
-        <button class="icon-btn" onclick="logout()">Exit</button>
+      </main>
+
+  <!-- ==================== ADMIN PORTAL ==================== -->
+  <main id="admin" class="portal hidden">
+    <div class="teacher-wrap" style="width: 75%; max-width: 1300px; margin: 0 auto; padding-bottom: 50px;">
+      <header class="portal-header">
+        <div class="header-section-left">
+          <span class="portal-role-badge">ADMIN</span>
+          <span id="adminName" class="portal-header-name"></span>
+        </div>
+        <div class="header-section-center">
+          <img src="{{ url_for('static',filename='img/niet-header.png') }}" alt="NIET Header" class="site-header-banner">
+        </div>
+        <div class="header-section-right">
+          <button class="theme-toggle portal-header-circle-btn" onclick="toggleTheme()" title="Toggle Theme">🌓</button>
+          <button class="btn btn-ghost portal-header-circle-btn" onclick="showPasswordModal()" style="border-radius:12px !important;" title="Change Password">⚙️</button>
+          <button class="btn btn-ghost portal-header-btn" onclick="logout()" style="color:var(--danger); border-color:var(--danger);">Exit</button>
+        </div>
       </header>
+      <div id="adminExtensionAlert" style="display:none; margin: 15px auto; padding: 14px 22px; border-radius: 12px; background: rgba(239,68,68,0.15); border: 1px solid rgba(239,68,68,0.4); color: #ef4444; font-weight: 700; font-size: 0.95rem; align-items: center; gap: 10px;"></div>
 
-      <div class="portal-tabs" style="display:flex; gap:10px; margin: 20px 0;">
+      <div class="portal-tabs" style="display:flex; flex-wrap:wrap; justify-content:center; gap:14px; margin: 30px 0 20px 0;">
         <button class="tab-btn btn btn-ghost active" data-target="tab-admin-teachers" onclick="showTab('tab-admin-teachers')">Manage Teachers</button>
         <button class="tab-btn btn btn-ghost" data-target="tab-admin-students" onclick="showTab('tab-admin-students')">Manage Students</button>
+        <button class="tab-btn btn btn-ghost" data-target="tab-admin-activity" onclick="showTab('tab-admin-activity')">Activity &amp; Leaderboard</button>
+        <button class="tab-btn btn btn-ghost" data-target="tab-admin-history" onclick="showTab('tab-admin-history'); loadAdminHistory();">History</button>
+        <button class="tab-btn btn btn-ghost" data-target="tab-admin-assignments" onclick="showTab('tab-admin-assignments'); loadAssignmentsUI('admin');">Question Assignment</button>
       </div>
 
       <div class="tab-content-area" style="width: 100%;">
         <section id="tab-admin-teachers" class="glass panel portal-tab-content" style="display:block;">
-          <h2>Add teacher access</h2>
+          <h2>Import Teachers (CSV / Excel)</h2>
+          <form id="teacherImportForm"><input type="file" id="teacherFile" accept=".csv,.xlsx" required><button class="btn btn-primary">Upload CSV / Excel</button></form>
+          <small>Required columns: name, username, department, password.</small>
+          <hr>
+          <h3>Add teacher manually</h3>
           <form id="teacherAccessForm">
             <input id="teacherFullName" required placeholder="Teacher name">
             <input id="teacherUserName" required placeholder="Teacher username">
@@ -285,38 +564,273 @@
             <button class="btn btn-primary">Save teacher</button>
           </form>
           <hr>
-          <h3>Import teachers</h3>
-          <form id="teacherImportForm"><input type="file" id="teacherFile" accept=".csv,.xlsx" required><button class="btn btn-primary">Upload CSV / Excel</button></form>
-          <small>Required columns: name, username, department, password.</small>
-          <hr>
           <h3>System Users</h3>
           <div id="adminUsers">Loading...</div>
+          <hr>
+          <h3>System Actions</h3>
+          <button class="btn btn-primary" onclick="createBackup()">Create Database Backup</button>
         </section>
 
         <section id="tab-admin-students" class="glass panel portal-tab-content" style="display:none;">
-          <h2>Edit student details</h2>
+          <h2>Edit user details</h2>
           <form id="adminStudentEditForm">
-            <input id="adminStudentSearch" placeholder="Search student by username to edit">
-            <div id="adminStudentEditFields" style="display:none; margin-top:1rem;">
+            <div class="field-row" style="margin-bottom:1rem;">
+              <div style="flex:1">
+                <label style="font-size:0.85rem; color:var(--text-2); display:block; margin-bottom:4px;">Search user to edit:</label>
+                <input id="adminStudentSearch" placeholder="Enter username or register number">
+              </div>
+            </div>
+            <div id="adminStudentEditFields" style="display:none; margin-top:1.5rem; display:flex; flex-direction:column; gap:12px;">
                 <input id="adminEditId" type="hidden">
-                <input id="adminEditName" required placeholder="Student name">
-                <input id="adminEditUsername" required placeholder="Username">
-                <input id="adminEditRegNo" required placeholder="Register number">
-                <div class="field-row">
-                    <select id="adminEditDept"><option value="">Dept</option><option value="CSE">CSE</option><option value="AIDS">AIDS</option><option value="CSBS">CSBS</option><option value="IT">IT</option><option value="MECH">MECH</option></select>
-                    <input id="adminEditYear" placeholder="Year">
-                    <input id="adminEditSem" placeholder="Semester">
-                    <select id="adminEditSec"><option value="">Sec</option><option value="A">A</option><option value="B">B</option></select>
+                <input id="adminEditRole" type="hidden">
+                <div class="field-row" style="display:flex; gap:10px;">
+                  <div style="flex:1"><label style="font-size:0.85rem; color:var(--text-2); display:block; margin-bottom:4px;">Name</label><input id="adminEditName" required></div>
+                  <div style="flex:1"><label style="font-size:0.85rem; color:var(--text-2); display:block; margin-bottom:4px;">Username</label><input id="adminEditUsername" required></div>
                 </div>
-                <input id="adminEditPassword" placeholder="New Password (leave blank to keep current)">
-                <button type="button" id="adminSaveStudentBtn" class="btn btn-primary">Save changes</button>
-                <button type="button" id="adminCancelEditBtn" class="btn btn-ghost">Cancel</button>
+                <div class="field-row" style="display:flex; gap:10px;">
+                  <div style="flex:1"><label style="font-size:0.85rem; color:var(--text-2); display:block; margin-bottom:4px;">Reg No (Student)</label><input id="adminEditRegNo"></div>
+                  <div style="flex:1"><label style="font-size:0.85rem; color:var(--text-2); display:block; margin-bottom:4px;">Department</label><input id="adminEditDept"></div>
+                </div>
+                <div class="field-row" style="display:flex; gap:10px;">
+                    <div style="flex:1"><label style="font-size:0.85rem; color:var(--text-2); display:block; margin-bottom:4px;">Year</label><input id="adminEditYear"></div>
+                    <div style="flex:1"><label style="font-size:0.85rem; color:var(--text-2); display:block; margin-bottom:4px;">Class</label><input id="adminEditClass"></div>
+                    <div style="flex:1"><label style="font-size:0.85rem; color:var(--text-2); display:block; margin-bottom:4px;">Semester</label><input id="adminEditSem"></div>
+                    <div style="flex:1"><label style="font-size:0.85rem; color:var(--text-2); display:block; margin-bottom:4px;">Section</label><input id="adminEditSec"></div>
+                </div>
+                <div class="field-row" style="margin-top:5px">
+                  <div style="flex:1">
+                    <label style="font-size:0.85rem; color:var(--text-2); display:block; margin-bottom:4px;">New Password</label>
+                    <input type="password" id="adminEditPassword" placeholder="Leave blank to keep current password">
+                  </div>
+                </div>
+                <div style="margin-top:1rem; display:flex; gap:10px;">
+                  <button type="button" id="adminSaveStudentBtn" class="btn btn-primary">Save changes</button>
+                  <button type="button" id="adminCancelEditBtn" class="btn btn-ghost">Cancel</button>
+                </div>
             </div>
           </form>
         </section>
+
+        <section id="tab-admin-activity" class="glass panel portal-tab-content" style="display:none;">
+          <h2 id="adminActivityTitle">Student Activity</h2><div id="adminActivity">Loading...</div>
+          <hr>
+          <h2>Class-wise Leaderboard</h2>
+          <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:10px;">
+            <input id="adminLeaderboardClassSearch" placeholder="Filter by dept/class (e.g. CSE, IT, CSE-A)" style="flex:1;min-width:160px;">
+            <button class="btn btn-ghost" onclick="renderDashboard()" style="padding:8px 14px;">&#128269; Search</button>
+            <button class="btn btn-primary" onclick="downloadLeaderboard('csv',true)" style="padding:8px 14px;">&#11015; CSV</button>
+            <button class="btn btn-primary" onclick="downloadLeaderboard('xlsx',true)" style="padding:8px 14px;background:var(--accent-2);">&#11015; Excel</button>
+            <button class="btn btn-primary" onclick="openPlagiarismModal()" style="padding:8px 14px; background:linear-gradient(135deg, #7c3aed, #4f46e5); font-weight:700;">🔍 Plagiarism</button>
+          </div>
+          <div style="margin-top:1rem; overflow-x:auto;">
+              <table style="width:100%; border-collapse:collapse; text-align:left;">
+                  <thead><tr><th>Rank</th><th>Student Name</th><th>Reg No</th><th>Dept</th><th>Section</th><th>Time (s)</th><th>Coding Score</th><th>MCQ Score</th></tr></thead>
+                  <tbody id="adminLeaderboardTableBody"></tbody>
+              </table>
+          </div>
+        </section>
+        <section id="tab-admin-history" class="glass panel portal-tab-content" style="display:none;">
+          <h2 style="margin-bottom:18px;">Exam History (Admin)</h2>
+          <div style="border-radius:12px; border:1px solid var(--glass-border); overflow-x:auto;">
+            <table class="data-table" style="width:100%; min-width:920px;">
+              <thead>
+                <tr>
+                  <th style="width:50px;">ID</th>
+                  <th style="width:120px;">Exam Key</th>
+                  <th>Teacher</th>
+                  <th>Date &amp; Time (IST)</th>
+                  <th style="text-align:center; width:120px;">Students</th>
+                  <th style="text-align:right; width:380px; white-space:nowrap;">Actions</th>
+                </tr>
+              </thead>
+              <tbody id="adminHistoryList"></tbody>
+            </table>
+          </div>
+        </section>
+
+        <!-- Individual Student Question Assignment Tab (Admin) -->
+        <section id="tab-admin-assignments" class="glass panel portal-tab-content" style="display:none;">
+          <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px; margin-bottom:20px;">
+            <div>
+              <h2 style="margin:0; font-size:1.35rem; font-weight:700;">Individual Student Question Assignment (Admin)</h2>
+              <p style="margin:4px 0 0 0; color:var(--text-2); font-size:0.88rem;">Manage individual question assignments across any teacher and examination.</p>
+            </div>
+            <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
+              <select id="adminAssignmentExamSelect" onchange="onAssignmentExamChange('admin')" style="padding:8px 12px; border-radius:10px; background:var(--bg-1); color:var(--text-0); border:1px solid var(--glass-border); font-weight:600; min-width:320px;"></select>
+              <button type="button" class="btn btn-ghost" onclick="loadAssignmentsUI('admin')" style="padding:8px 14px;">🔄 Refresh</button>
+            </div>
+          </div>
+
+          <div class="glass panel" style="background:var(--bg-1, rgba(255,255,255,0.03)); border:1px solid var(--glass-border); border-radius:14px; padding:20px; margin-bottom:24px;">
+            <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap:16px; margin-bottom:18px;">
+              <div>
+                <label style="font-size:0.82rem; font-weight:700; color:var(--text-2); display:block; margin-bottom:6px;">SELECT STUDENT</label>
+                <select id="adminAssignmentStudentSelect" onchange="onAssignmentStudentChange('admin')" style="width:100%; padding:10px 12px; border-radius:10px; background:var(--bg-0); color:var(--text-0); border:1px solid var(--glass-border); font-size:0.95rem; font-weight:600;"></select>
+              </div>
+              <div>
+                <label style="font-size:0.82rem; font-weight:700; color:var(--text-2); display:block; margin-bottom:6px;">EXAMINATION SUMMARY</label>
+                <div id="adminAssignmentExamSummary" style="padding:10px 12px; border-radius:10px; background:var(--bg-0); border:1px solid var(--glass-border); font-size:0.88rem; color:var(--text-1); min-height:42px; display:flex; align-items:center;">
+                  Select an examination to view questions.
+                </div>
+              </div>
+            </div>
+
+            <div style="margin-bottom:18px;">
+              <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+                <div style="display:flex; align-items:center; gap:12px;">
+                  <b style="font-size:0.92rem; color:var(--text-0);">Available Questions:</b>
+                  <span id="adminAssignmentSelectedCount" style="font-size:0.85rem; font-weight:700; color:var(--accent-1); background:rgba(13,148,136,0.15); padding:2px 10px; border-radius:999px;">0 Selected</span>
+                </div>
+                <div style="display:flex; gap:8px;">
+                  <button type="button" class="btn btn-ghost" onclick="assignmentSelectAll(true, 'admin')" style="padding:5px 12px; font-size:0.82rem;">Select All</button>
+                  <button type="button" class="btn btn-ghost" onclick="assignmentSelectAll(false, 'admin')" style="padding:5px 12px; font-size:0.82rem;">Clear Selection</button>
+                </div>
+              </div>
+              <div id="adminAssignmentQuestionsList" style="max-height:280px; overflow-y:auto; border:1px solid var(--glass-border); border-radius:10px; padding:12px; background:var(--bg-0); display:flex; flex-direction:column; gap:8px;">
+                <div style="color:var(--text-2); font-size:0.88rem; text-align:center; padding:20px;">Select a student and exam above.</div>
+              </div>
+            </div>
+
+            <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px;">
+              <div style="display:flex; gap:10px;">
+                <button type="button" id="adminAssignmentSaveBtn" class="btn btn-primary" onclick="saveIndividualAssignment('admin')" style="padding:10px 22px; font-weight:700;">💾 Save Individual Assignment</button>
+                <button type="button" id="adminAssignmentResetBtn" class="btn btn-ghost" onclick="resetIndividualAssignment('admin')" style="padding:10px 18px; color:var(--danger); border-color:var(--danger);">↺ Reset to Common Questions</button>
+              </div>
+              <div id="adminAssignmentStatusNotice" style="font-size:0.85rem; font-weight:600; color:var(--text-2);"></div>
+            </div>
+          </div>
+
+          <div style="margin-top:20px;">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; flex-wrap:wrap; gap:10px;">
+              <h3 style="margin:0; font-size:1.1rem; font-weight:700;">Student Assignment Overview</h3>
+              <input id="adminAssignmentTableSearch" oninput="filterAssignmentOverviewTable('admin')" placeholder="🔍 Search student by name, reg no, dept..." style="padding:8px 14px; border-radius:10px; border:1px solid var(--glass-border); background:var(--bg-1); color:var(--text-0); font-size:0.88rem; width:280px;">
+            </div>
+            <div style="border-radius:12px; border:1px solid var(--glass-border); overflow-x:auto;">
+              <table class="data-table" style="width:100%; min-width:800px; text-align:left;">
+                <thead>
+                  <tr>
+                    <th style="padding:12px 14px;">Student</th>
+                    <th style="padding:12px 14px;">Reg No</th>
+                    <th style="padding:12px 14px;">Dept / Section</th>
+                    <th style="padding:12px 14px;">Assignment Mode</th>
+                    <th style="padding:12px 14px;">Assigned Questions</th>
+                    <th style="padding:12px 14px; text-align:right;">Actions</th>
+                  </tr>
+                </thead>
+                <tbody id="adminAssignmentOverviewTableBody">
+                  <tr><td colspan="6" style="text-align:center; padding:20px; color:var(--text-2);">Loading assignments...</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </section>
       </div>
     </div>
-  </main>
-  <script src="{{ url_for('static',filename='js/script-v2.js') }}?v=editor-colors-javafix-20260807"></script>
+
+      </main>
+
+  <script src="{{ url_for('static',filename='js/script-v2.js') }}?v=20261021-v47"></script>
+
+<div id="passwordModal" class="fs-prompt hidden">
+  <div class="fs-prompt-card panel" style="width:300px; margin: auto; position:relative;">
+    <h3>Change Password</h3>
+    <input type="password" id="newPassword" placeholder="New Password" style="width:100%; margin:15px 0;">
+    <div style="display:flex;gap:10px;"><button class="btn btn-primary" onclick="savePassword()">Save</button> <button class="btn btn-ghost" onclick="document.getElementById('passwordModal').classList.add('hidden')">Cancel</button></div>
+  </div>
+</div>
+
+<div id="historyModal" class="fs-prompt hidden">
+  <div class="fs-prompt-card panel glass" style="width:95%; max-width:1500px; max-height:85vh; overflow-y:auto; margin: auto; position:relative; text-align:left; padding: 40px;">
+    <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid var(--glass-border); padding-bottom:15px; margin-bottom:20px;">
+      <h3 id="historyModalTitle" style="margin:0; font-size:1.6rem; font-weight:700;">Exam History Details</h3>
+      <button class="btn btn-sm btn-ghost" onclick="document.getElementById('historyModal').classList.add('hidden')" style="padding: 8px 16px; border-radius:10px;">✕ Close</button>
+    </div>
+    <div id="historyModalMeta" style="margin-bottom:25px; font-size:1rem; color:var(--text-1); font-weight:600;"></div>
+    <div style="overflow-x:auto;">
+      <table class="data-table" style="width:100%; border-collapse:collapse; text-align:left;">
+        <thead>
+          <tr style="white-space:nowrap; font-size:0.95rem;">
+            <th style="padding: 16px 14px; border-bottom:2px solid var(--glass-border);">Rank</th>
+            <th style="padding: 16px 14px; border-bottom:2px solid var(--glass-border);">Student Name</th>
+            <th style="padding: 16px 14px; border-bottom:2px solid var(--glass-border);">Reg No</th>
+            <th style="padding: 16px 14px; border-bottom:2px solid var(--glass-border);">Dept</th>
+            <th style="padding: 16px 14px; border-bottom:2px solid var(--glass-border);">Section</th>
+            <th style="padding: 16px 14px; border-bottom:2px solid var(--glass-border);">Time</th>
+            <th style="padding: 16px 14px; border-bottom:2px solid var(--glass-border); text-align:center;">Coding Score</th>
+            <th style="padding: 16px 14px; border-bottom:2px solid var(--glass-border); text-align:center;">MCQ Score</th>
+            <th style="padding: 16px 14px; border-bottom:2px solid var(--glass-border); text-align:center;">Total Score</th>
+            <th style="padding: 16px 14px; border-bottom:2px solid var(--glass-border); text-align:center;">Tab Switches</th>
+            <th style="padding: 16px 14px; border-bottom:2px solid var(--glass-border); text-align:center;">Code Submitted</th>
+          </tr>
+        </thead>
+        <tbody id="historyModalBody"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<div id="codeViewModal" class="fs-prompt hidden" style="z-index: 10005;">
+  <div class="fs-prompt-card panel glass" style="width:94%; max-width:1060px; max-height:88vh; display:flex; flex-direction:column; margin: auto; position:relative; text-align:left; padding: 26px 32px; border-radius: 20px; box-shadow: 0 25px 60px rgba(0,0,0,0.5);">
+    <div style="display:flex; justify-content:space-between; align-items:flex-start; border-bottom:1px solid var(--glass-border); padding-bottom:16px; margin-bottom:18px; gap:16px;">
+      <div style="flex:1; min-width:0;">
+        <h3 id="codeViewTitle" style="margin:0; font-size:1.4rem; font-weight:700; color:var(--text-0); display:flex; align-items:center; gap:8px;">
+          <span>💻</span> <span>Submitted Solutions</span>
+        </h3>
+        <div id="codeViewSubtitle" style="color:var(--text-1); font-weight:600; font-size:0.9rem; margin-top:6px;"></div>
+      </div>
+      <div style="flex-shrink:0;">
+        <button class="btn btn-ghost" onclick="document.getElementById('codeViewModal').classList.add('hidden')" style="padding: 8px 18px; border-radius:10px; font-size:0.9rem; font-weight:600; cursor:pointer;">✕ Close</button>
+      </div>
+    </div>
+    <div id="codeViewCardsContainer" style="flex:1; overflow-y:auto; display:flex; flex-direction:column; gap:18px; padding-right:6px;">
+    </div>
+  </div>
+</div>
+
+<!-- Student Official Scorecard Modal -->
+<div id="studentResultModal" class="fs-prompt hidden" style="z-index: 10005; background: rgba(0,0,0,0.85); backdrop-filter: blur(10px);">
+  <div class="fs-prompt-card panel glass scorecard-modal-card" style="width: 900px; max-width: 96vw; max-height: 92vh; display: flex; flex-direction: column; padding: 26px 30px; border-radius: 20px; box-shadow: 0 25px 60px rgba(0,0,0,0.5); position:relative; overflow:hidden;">
+    <div class="scorecard-header-bar" style="display:flex; justify-content:space-between; align-items:center; border-bottom: 1px solid var(--glass-border); padding-bottom: 14px; margin-bottom: 16px;">
+      <div style="display:flex; align-items:center; gap:14px;">
+        <img src="{{ url_for('static',filename='img/niet-logo.jpg') }}" alt="NIET Logo" style="height:50px; width:50px; object-fit:contain; border-radius:8px; background:#fff; padding:2px;">
+        <div>
+          <h3 style="margin:0; font-size:1.15rem; color:var(--text-0); font-weight:800; letter-spacing:0.3px;">NEHRU INSTITUTE OF ENGINEERING AND TECHNOLOGY</h3>
+          <small style="color:var(--text-2); font-weight:600; font-size:0.82rem;">Autonomous Institution | Examination Performance Scorecard</small>
+        </div>
+      </div>
+      <div style="display:flex; gap:10px; align-items:center;" class="no-print">
+        <button class="btn btn-primary" onclick="printScorecard()" style="padding: 8px 18px; border-radius:10px; font-size:0.9rem; font-weight:700; background:var(--accent-1); display:flex; align-items:center; gap:6px;">🖨️ Print / Save PDF</button>
+        <button class="btn btn-ghost" onclick="document.getElementById('studentResultModal').classList.add('hidden')" style="padding: 8px 16px; border-radius:10px; font-size:0.9rem; font-weight:600;">✕ Close</button>
+      </div>
+    </div>
+    <div id="scorecardBody" style="flex:1; overflow-y:auto; padding-right:6px;">
+      <!-- Dynamic Scorecard Contents -->
+    </div>
+  </div>
+</div>
+
+<!-- Plagiarism Inspection Modal -->
+<div id="plagiarismModal" class="fs-prompt hidden" style="z-index: 10006; background: rgba(0,0,0,0.85); backdrop-filter: blur(10px);">
+  <div class="fs-prompt-card panel glass" style="width: 1040px; max-width: 96vw; max-height: 92vh; display: flex; flex-direction: column; padding: 26px 30px; border-radius: 20px; box-shadow: 0 25px 60px rgba(0,0,0,0.5); position:relative; overflow:hidden;">
+    <div style="display:flex; justify-content:space-between; align-items:center; border-bottom: 1px solid var(--glass-border); padding-bottom: 14px; margin-bottom: 16px;">
+      <div>
+        <h3 style="margin:0; font-size:1.3rem; color:var(--text-0); font-weight:800; display:flex; align-items:center; gap:8px;">🔍 Code Plagiarism &amp; Similarity Detector</h3>
+        <small id="plagiarismSubtitle" style="color:var(--text-2); font-weight:600;">Analyzing student submissions across test cases</small>
+      </div>
+      <div style="display:flex; gap:10px; align-items:center;">
+        <button class="btn btn-ghost" onclick="document.getElementById('plagiarismModal').classList.add('hidden')" style="padding: 8px 16px; border-radius:10px; font-size:0.9rem; font-weight:600;">✕ Close</button>
+      </div>
+    </div>
+    <div id="plagiarismContent" style="flex:1; overflow-y:auto; padding-right:6px;">
+      <!-- Plagiarism results table / side-by-side viewer -->
+    </div>
+  </div>
+</div>
+
+  <!-- Global Sticky Developer Watermark Badge -->
+  <div class="developer-watermark" id="developerWatermark">
+    <small style="text-align: right;">Developed By : 2nd year - CSE - A <br><h3>S.DEEPAKUMAR</h3></small>
+  </div>
+
 </body>
 </html>

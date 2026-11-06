@@ -12,6 +12,6 @@ echo On student laptops open: http://TEACHER-IP:5000
 echo.
 for /f "tokens=2 delims=:" %%A in ('ipconfig ^| findstr /c:"IPv4 Address"') do echo Teacher computer IP:%%A
 echo.
-echo Starting server...
+echo Starting LAN Server...
 python app.py
 pause

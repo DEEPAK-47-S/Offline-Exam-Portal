@@ -1,0 +1,31 @@
+# Virtual Environment
+.venv/
+venv/
+ENV/
+env/
+
+# Byte-compiled / cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyc
+
+# Environment files
+.env
+
+# Backups & transient exam session databases
+backups/
+exam_databases/
+.remote-code-express/
+*.db-wal
+*.db-shm
+
+# Nginx temp & logs
+nginx/temp/
+nginx/logs/
+
+# IDE / Editor files
+.vscode/
+.idea/
+*.swp
+*.swo
