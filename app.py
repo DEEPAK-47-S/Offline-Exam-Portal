@@ -399,52 +399,58 @@ def activity():
     if event not in allowed_events or not has_exam_access(session['user_id']):
         return jsonify(ok=True,ignored=True,illegal_count=illegal_count(session['user_id']),locked=False)
     now=time.time(); c=conn()
-    # Use exam_type from session to track violations separately
-    exam_type = session.get('exam_type', 'coding')
-    if exam_type == 'mcq':
-        row=c.execute('SELECT mcq_violations,mcq_locked,last_violation_at FROM exam_access WHERE user_id=? AND teacher_id=?',(session['user_id'],session.get('teacher_id') or session.get('user_id'))).fetchone()
-        curr_cnt = int(row['mcq_violations'] or 0) if row else 0
-        if row and (row['mcq_locked'] or curr_cnt >= 5):
-            c.close()
-            return jsonify(ok=True,illegal_count=5,locked=True)
-            
-        last_v = float(row['last_violation_at'] or 0) if row else 0
-        if last_v and (now - last_v < 0.8):
-            c.close()
-            return jsonify(ok=True,ignored=True,illegal_count=min(5, curr_cnt),locked=False)
+    try:
+        # Use exam_type from session to track violations separately
+        exam_type = session.get('exam_type', 'coding')
+        tid = get_student_teacher_id(c, session['user_id'])
+        if exam_type == 'mcq':
+            row=c.execute('SELECT mcq_violations,mcq_locked,last_violation_at FROM exam_access WHERE user_id=? AND teacher_id=?',(session['user_id'], tid)).fetchone()
+            curr_cnt = int(row['mcq_violations'] or 0) if row else 0
+            if row and (row['mcq_locked'] or curr_cnt >= 5):
+                return jsonify(ok=True,illegal_count=5,locked=True)
+                
+            if event in ('window_refocus', 'attempt_close'):
+                log(session['user_id'], event, d.get('details',''))
+                return jsonify(ok=True, ignored=True, illegal_count=min(5, curr_cnt), locked=False)
 
-        new_count = min(5, curr_cnt + 1)
-        locked = (new_count >= 5)
-        c.execute('UPDATE exam_access SET mcq_violations=?,mcq_locked=?,last_violation_at=? WHERE user_id=? AND teacher_id=?',
-                  (new_count, 1 if locked else 0, now, session['user_id'], session.get('teacher_id') or session.get('user_id')))
-        c.commit()
-        log(session['user_id'], event, d.get('details',''))
-        if locked:
-            log(session['user_id'], 'mcq_exam_locked', 'mcq violation limit exceeded (5/5)')
+            last_v = float(row['last_violation_at'] or 0) if row else 0
+            if last_v and (now - last_v < 0.35):
+                return jsonify(ok=True,ignored=True,illegal_count=min(5, curr_cnt),locked=False)
+
+            new_count = min(5, curr_cnt + 1)
+            locked = (new_count >= 5)
+            c.execute('UPDATE exam_access SET mcq_violations=?,mcq_locked=?,last_violation_at=? WHERE user_id=? AND teacher_id=?',
+                      (new_count, 1 if locked else 0, now, session['user_id'], tid))
+            c.commit()
+            log(session['user_id'], event, d.get('details',''))
+            if locked:
+                log(session['user_id'], 'mcq_exam_locked', 'mcq violation limit exceeded (5/5)')
+            return jsonify(ok=True, illegal_count=new_count, locked=locked)
+        else:
+            row=c.execute('SELECT violations,locked,last_violation_at FROM exam_access WHERE user_id=? AND teacher_id=?',(session['user_id'], tid)).fetchone()
+            curr_cnt = int(row['violations'] or 0) if row else 0
+            if row and (row['locked'] or curr_cnt >= 5):
+                return jsonify(ok=True,illegal_count=5,locked=True)
+
+            if event in ('window_refocus', 'attempt_close'):
+                log(session['user_id'], event, d.get('details',''))
+                return jsonify(ok=True, ignored=True, illegal_count=min(5, curr_cnt), locked=False)
+
+            last_v = float(row['last_violation_at'] or 0) if row else 0
+            if last_v and (now - last_v < 0.35):
+                return jsonify(ok=True,ignored=True,illegal_count=min(5, curr_cnt),locked=False)
+
+            new_count = min(5, curr_cnt + 1)
+            locked = (new_count >= 5)
+            c.execute('UPDATE exam_access SET violations=?,locked=?,last_violation_at=? WHERE user_id=? AND teacher_id=?',
+                      (new_count, 1 if locked else 0, now, session['user_id'], tid))
+            c.commit()
+            log(session['user_id'], event, d.get('details',''))
+            if locked:
+                log(session['user_id'], 'exam_locked', 'coding violation limit exceeded (5/5)')
+            return jsonify(ok=True, illegal_count=new_count, locked=locked)
+    finally:
         c.close()
-        return jsonify(ok=True, illegal_count=new_count, locked=locked)
-    else:
-        row=c.execute('SELECT violations,locked,last_violation_at FROM exam_access WHERE user_id=? AND teacher_id=?',(session['user_id'],session.get('teacher_id') or session.get('user_id'))).fetchone()
-        curr_cnt = int(row['violations'] or 0) if row else 0
-        if row and (row['locked'] or curr_cnt >= 5):
-            c.close()
-            return jsonify(ok=True,illegal_count=5,locked=True)
-
-        last_v = float(row['last_violation_at'] or 0) if row else 0
-        if last_v and (now - last_v < 0.8):
-            c.close()
-            return jsonify(ok=True,ignored=True,illegal_count=min(5, curr_cnt),locked=False)
-
-        new_count = min(5, curr_cnt + 1)
-        locked = (new_count >= 5)
-        c.execute('UPDATE exam_access SET violations=?,locked=?,last_violation_at=? WHERE user_id=? AND teacher_id=?',
-                  (new_count, 1 if locked else 0, now, session['user_id'], session.get('teacher_id') or session.get('user_id')))
-        c.commit()
-        log(session['user_id'], event, d.get('details',''))
-        if locked:
-            log(session['user_id'], 'exam_locked', 'coding violation limit exceeded (5/5)')
-        c.close()
-        return jsonify(ok=True, illegal_count=new_count, locked=locked)
 @app.get('/api/questions')
 @auth()
 def questions():
@@ -1464,49 +1470,51 @@ def exam_clear_keys():
 @auth('student')
 def exam_student_exit():
     c=conn()
-    tid = session.get('teacher_id')
-    if not tid:
-        acc = c.execute('SELECT teacher_id FROM exam_access WHERE user_id=? LIMIT 1', (session['user_id'],)).fetchone()
-        if acc and acc['teacher_id']:
-            tid = acc['teacher_id']
-    if not tid:
-        st = c.execute('SELECT teacher_id FROM exam_state WHERE active=1 LIMIT 1').fetchone()
-        if st:
-            tid = st['teacher_id']
-            
-    etype = session.get('exam_type') or 'coding'
-    if etype == 'coding':
-        score_row = c.execute('SELECT COALESCE(SUM(max_score),0) as total, COALESCE(SUM(min_time),0) as time_total FROM (SELECT MAX(score) as max_score, MIN(time_seconds) as min_time FROM submissions WHERE user_id=? AND teacher_id=? GROUP BY question_id)', (session['user_id'], tid)).fetchone()
-        final_score = score_row['total'] if score_row else 0
-        total_time = score_row['time_total'] if score_row else 0
-        if tid:
-            c.execute('UPDATE exam_access SET locked=1, final_score=?, total_time=? WHERE user_id=? AND teacher_id=?',(final_score, total_time, session['user_id'], tid))
+    try:
+        tid = session.get('teacher_id')
+        if not tid:
+            acc = c.execute('SELECT teacher_id FROM exam_access WHERE user_id=? LIMIT 1', (session['user_id'],)).fetchone()
+            if acc and acc['teacher_id']:
+                tid = acc['teacher_id']
+        if not tid:
+            st = c.execute('SELECT teacher_id FROM exam_state WHERE active=1 LIMIT 1').fetchone()
+            if st:
+                tid = st['teacher_id']
+                
+        etype = session.get('exam_type') or 'coding'
+        if etype == 'coding':
+            score_row = c.execute('SELECT COALESCE(SUM(max_score),0) as total, COALESCE(SUM(min_time),0) as time_total FROM (SELECT MAX(score) as max_score, MIN(time_seconds) as min_time FROM submissions WHERE user_id=? AND teacher_id=? GROUP BY question_id)', (session['user_id'], tid)).fetchone()
+            final_score = score_row['total'] if score_row else 0
+            total_time = score_row['time_total'] if score_row else 0
+            if tid:
+                c.execute('UPDATE exam_access SET locked=1, final_score=?, total_time=? WHERE user_id=? AND teacher_id=?',(final_score, total_time, session['user_id'], tid))
+            else:
+                c.execute('UPDATE exam_access SET locked=1, final_score=?, total_time=? WHERE user_id=?',(final_score, total_time, session['user_id']))
+        elif etype == 'mcq':
+            mcq_row = c.execute('SELECT SUM(m.marks) as total FROM mcq_status s JOIN mcqs m ON s.mcq_id=m.id WHERE s.student_id=? AND s.teacher_id=? AND s.is_correct=1', (session['user_id'], tid)).fetchone()
+            mcq_final = mcq_row['total'] if mcq_row and mcq_row['total'] else 0
+            if tid:
+                c.execute('UPDATE exam_access SET mcq_locked=1, mcq_final_score=? WHERE user_id=? AND teacher_id=?',(mcq_final, session['user_id'], tid))
+            else:
+                c.execute('UPDATE exam_access SET mcq_locked=1, mcq_final_score=? WHERE user_id=?',(mcq_final, session['user_id']))
         else:
-            c.execute('UPDATE exam_access SET locked=1, final_score=?, total_time=? WHERE user_id=?',(final_score, total_time, session['user_id']))
-    elif etype == 'mcq':
-        mcq_row = c.execute('SELECT SUM(m.marks) as total FROM mcq_status s JOIN mcqs m ON s.mcq_id=m.id WHERE s.student_id=? AND s.teacher_id=? AND s.is_correct=1', (session['user_id'], tid)).fetchone()
-        mcq_final = mcq_row['total'] if mcq_row and mcq_row['total'] else 0
-        if tid:
-            c.execute('UPDATE exam_access SET mcq_locked=1, mcq_final_score=? WHERE user_id=? AND teacher_id=?',(mcq_final, session['user_id'], tid))
-        else:
-            c.execute('UPDATE exam_access SET mcq_locked=1, mcq_final_score=? WHERE user_id=?',(mcq_final, session['user_id']))
-    else:
-        score_row = c.execute('SELECT COALESCE(SUM(max_score),0) as total, COALESCE(SUM(min_time),0) as time_total FROM (SELECT MAX(score) as max_score, MIN(time_seconds) as min_time FROM submissions WHERE user_id=? AND teacher_id=? GROUP BY question_id)', (session['user_id'], tid)).fetchone()
-        final_score = score_row['total'] if score_row else 0
-        total_time = score_row['time_total'] if score_row else 0
-        mcq_row = c.execute('SELECT SUM(m.marks) as total FROM mcq_status s JOIN mcqs m ON s.mcq_id=m.id WHERE s.student_id=? AND s.teacher_id=? AND s.is_correct=1', (session['user_id'], tid)).fetchone()
-        mcq_final = mcq_row['total'] if mcq_row and mcq_row['total'] else 0
-        if tid:
-            c.execute('UPDATE exam_access SET locked=1, mcq_locked=1, final_score=?, mcq_final_score=?, total_time=? WHERE user_id=? AND teacher_id=?',(final_score, mcq_final, total_time, session['user_id'], tid))
-        else:
-            c.execute('UPDATE exam_access SET locked=1, mcq_locked=1, final_score=?, mcq_final_score=?, total_time=? WHERE user_id=?',(final_score, mcq_final, total_time, session['user_id']))
+            score_row = c.execute('SELECT COALESCE(SUM(max_score),0) as total, COALESCE(SUM(min_time),0) as time_total FROM (SELECT MAX(score) as max_score, MIN(time_seconds) as min_time FROM submissions WHERE user_id=? AND teacher_id=? GROUP BY question_id)', (session['user_id'], tid)).fetchone()
+            final_score = score_row['total'] if score_row else 0
+            total_time = score_row['time_total'] if score_row else 0
+            mcq_row = c.execute('SELECT SUM(m.marks) as total FROM mcq_status s JOIN mcqs m ON s.mcq_id=m.id WHERE s.student_id=? AND s.teacher_id=? AND s.is_correct=1', (session['user_id'], tid)).fetchone()
+            mcq_final = mcq_row['total'] if mcq_row and mcq_row['total'] else 0
+            if tid:
+                c.execute('UPDATE exam_access SET locked=1, mcq_locked=1, final_score=?, mcq_final_score=?, total_time=? WHERE user_id=? AND teacher_id=?',(final_score, mcq_final, total_time, session['user_id'], tid))
+            else:
+                c.execute('UPDATE exam_access SET locked=1, mcq_locked=1, final_score=?, mcq_final_score=?, total_time=? WHERE user_id=?',(final_score, mcq_final, total_time, session['user_id']))
 
-    c.commit()
-    d = request.get_json(silent=True) or {}
-    reason = d.get('reason') or 'student exited voluntarily'
-    log(session['user_id'], 'exam_left', reason)
-    c.close()
-    return jsonify(ok=True)
+        c.commit()
+        d = request.get_json(silent=True) or {}
+        reason = d.get('reason') or 'student exited voluntarily'
+        log(session['user_id'], 'exam_left', reason)
+        return jsonify(ok=True)
+    finally:
+        c.close()
 @app.post('/api/exam/join')
 @auth('student')
 def exam_join():

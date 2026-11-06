@@ -10,7 +10,7 @@
   
   <div class="cursor-glow" id="cursorGlow"></div>
 
-  <div id="leavePrompt" class="fs-prompt hidden">
+  <div id="leavePrompt" class="fs-prompt hidden" style="z-index: 10005;">
     <div class="fs-prompt-card">
       <b>Are you sure you want to leave the exam?</b>
       <p>Leaving will submit your current solutions and finalize your exam session. You will not be able to re-enter the examination after leaving.</p>
@@ -238,6 +238,7 @@
       </div>
       <div class="header-section-right">
         <span id="mcqTimer" class="timer-pill" style="margin: 0; font-weight: 700; white-space:nowrap;">Waiting</span>
+        <button id="studentMcqLeaveButton" class="icon-btn submit leave-exam" onclick="leaveExam()" style="margin: 0 4px;" title="Leave Exam">Leave</button>
         <button class="theme-toggle student-header-circle-btn" onclick="toggleTheme()" title="Toggle Theme">🌓</button>
       </div>
     </header>

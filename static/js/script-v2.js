@@ -10,6 +10,37 @@ let timerId = null;
 let securityBound = false;
 let teacherStudents = [];
 
+// ==================== EXAM LIFECYCLE STATE MODEL ====================
+const EXAM_STATES = {
+  NOT_STARTED: 'NOT_STARTED',
+  ACTIVE: 'ACTIVE',
+  LEAVE_CONFIRMATION_OPEN: 'LEAVE_CONFIRMATION_OPEN',
+  FINALIZING: 'FINALIZING',
+  FINISHED: 'FINISHED'
+};
+let examLifecycleState = EXAM_STATES.NOT_STARTED;
+window.EXAM_STATES = EXAM_STATES;
+window.getExamLifecycleState = () => examLifecycleState;
+
+function setExamLifecycleState(newState) {
+  const oldState = examLifecycleState;
+  examLifecycleState = newState;
+  window._examLifecycleState = newState;
+  // Clear legacy flag to ensure full backward compatibility without suppressing violations
+  window._leavingExam = false;
+}
+
+function isMonitoringActive() {
+  return (
+    unlocked &&
+    !exam_finished &&
+    (examLifecycleState === EXAM_STATES.ACTIVE ||
+     examLifecycleState === EXAM_STATES.LEAVE_CONFIRMATION_OPEN ||
+     examLifecycleState === EXAM_STATES.FINALIZING)
+  );
+}
+window.isMonitoringActive = isMonitoringActive;
+
 // Task 1: Per-(questionId_language) code store
 // Code typed for each question+language combo is saved and restored when switching.
 // Keys: "qid_lang", e.g. "5_python", "5_java", "12_c"
@@ -493,11 +524,16 @@ async function joinExam() {
       show("#student-mcq");
       $("#studentMcqName").textContent = me.name;
       unlocked = true;
+      exam_finished = false;
+      setExamLifecycleState(EXAM_STATES.ACTIVE);
       await loadMcqQuestions();
       refreshMcqExam();
       return;
     }
     window._examType = 'coding';
+    unlocked = true;
+    exam_finished = false;
+    setExamLifecycleState(EXAM_STATES.ACTIVE);
     // Task 1+8: Reset question tracking, codeStore, editor, and palette for 100% clean slate in this exam key
     _currentQuestionId = null;
     _currentLang = null;
@@ -525,6 +561,7 @@ async function joinExam() {
 }
 
 async function exitExamToHome(reasonMessage, isSuccess = false) {
+  setExamLifecycleState(EXAM_STATES.FINISHED);
   unlocked = false;
   exam_finished = true;
   window._leavingExam = false;
@@ -604,6 +641,10 @@ async function refreshExam(force = false) {
     unlocked = isCodingExam
       ? Boolean(state.active && state.joined && !state.locked && state.remaining > 0)
       : (isMcqExam ? Boolean(state.active && state.joined && !state.locked) : false);
+
+    if (unlocked && examLifecycleState === EXAM_STATES.NOT_STARTED) {
+      setExamLifecycleState(EXAM_STATES.ACTIVE);
+    }
 
     if (!unlocked) $("#fsPrompt")?.classList.add("hidden");
     // Task 2: Show timer only for coding exam
@@ -685,66 +726,90 @@ function security() {
   if (securityBound) return;
   securityBound = true;
 
-  // ── Debounce: all tab-switch signals share one 800ms window ──────────────
-  // 800ms is tight enough to catch rapid Alt+Tab, long enough to absorb
-  // the burst of events (visibilitychange + blur + fullscreenchange) that
-  // a single switch produces.
-  let lastSignalAt = 0;
+  // ── Unified departure / return focus state machine ───────────────────────
+  let focusLossState = "FOCUSED"; // "FOCUSED" | "AWAY"
+  let focusLostAt = 0;
+  let lastViolationSentAt = 0;
 
   const record = (event, details = "") => {
-    if (exam_finished || !unlocked) return;
-    if (window._leavingExam) return;
+    if (!isMonitoringActive()) return;
     if (window._suppressViolations) return;
-    if (window._extPromptOpen) return; // Allow student time to remove extensions without recording focus loss
+    if (window._extPromptOpen && event !== "extension_detected") return;
     const now = Date.now();
-    if (now - lastSignalAt < 800) return;   // debounce window
-    lastSignalAt = now;
+    if (now - lastViolationSentAt < 350) return;   // 350ms debounce window
+    lastViolationSentAt = now;
     sendActivity(event, details);
   };
 
-  // ── 1. Page Visibility API (most reliable — works on ALL browsers) ────────
-  // Fires when: Alt+Tab, Windows key, browser tab switch, phone call overlay
+  function handleFocusLoss(source, details = "") {
+    if (!isMonitoringActive()) return;
+    if (focusLossState === "AWAY") return;
+    focusLossState = "AWAY";
+    focusLostAt = Date.now();
+    const eventType = document.hidden ? "tab_hidden" : "window_blur";
+    const eventDetails = details || (document.hidden ? "visibility_hidden" : (source || "window_focus_lost"));
+    record(eventType, eventDetails);
+  }
+
+  function handleFocusGain(source) {
+    if (focusLossState !== "AWAY") return;
+    const checkGain = () => {
+      if (focusLossState !== "AWAY") return;
+      if (!document.hidden && document.hasFocus()) {
+        const awayMs = focusLostAt ? (Date.now() - focusLostAt) : 0;
+        focusLossState = "FOCUSED";
+        focusLostAt = 0;
+        if (isMonitoringActive()) {
+          record("window_refocus", `returned_after_${Math.round(awayMs / 1000)}s`);
+        }
+      }
+    };
+    if (document.hasFocus()) {
+      checkGain();
+    } else {
+      setTimeout(checkGain, 50);
+    }
+  }
+
+  // ── 1. Page Visibility API ──────────────────────────────────────────────
   document.addEventListener("visibilitychange", () => {
-    if (document.hidden) record("tab_hidden", "visibility_hidden");
-  });
-
-  // ── 2. Window blur (backup — fires when OS steals focus) ─────────────────
-  // Some browsers don't fire visibilitychange on Alt+Tab but DO fire blur.
-  window.addEventListener("blur", () => record("window_blur", "focus_lost"));
-
-  // ── 3. Mouse leaving viewport is REMOVED (No longer triggers tab switch on mouse hover) ──
-  // ── 4. Focus return tracking — detect if focus was away ──────────────────
-  let focusWasGone = false;
-  window.addEventListener("focus", () => {
-    if (focusWasGone && unlocked && !exam_finished) {
-      focusWasGone = false;
-      record("window_refocus", "returned_from_switch");
+    if (document.hidden) {
+      handleFocusLoss("visibilitychange", "visibility_hidden");
+    } else {
+      handleFocusGain("visibilitychange");
     }
   });
-  window.addEventListener("blur", () => { focusWasGone = true; });
 
-  // ── 5. Fullscreen exit (student manually exits fullscreen) ───────────────
+  // ── 2. Window blur & focus ──────────────────────────────────────────────
+  window.addEventListener("blur", () => {
+    handleFocusLoss("window_blur", "focus_lost");
+  });
+  window.addEventListener("focus", () => {
+    handleFocusGain("window_focus");
+  });
+
+  // ── 5. Fullscreen exit ──────────────────────────────────────────────────
   document.addEventListener("fullscreenchange", () => {
     if (document.fullscreenElement) {
       $(["#fsPrompt"])?.classList.add("hidden");
       return;
     }
-    if (!unlocked) return;
+    if (!isMonitoringActive()) return;
     record("fullscreen_exit", "exited_fullscreen");
     $("#fsPrompt")?.classList.remove("hidden");
   });
 
-  // ── 6. Screen size shrink (window restore / split screen) ────────────────
+  // ── 6. Screen size shrink ────────────────────────────────────────────────
   window.addEventListener("resize", () => {
-    if (!unlocked) return;
+    if (!isMonitoringActive()) return;
     if (innerWidth < window.screen.width * 0.9 || innerHeight < window.screen.height * 0.9) {
       record("screen_resize", `${innerWidth}x${innerHeight}`);
     }
   });
 
-  // ── 6b. Dual / External Monitor Blocker ──────────────────
+  // ── 6b. Dual / External Monitor Blocker ──────────────────────────────────
   function checkExternalMonitors() {
-    if (!unlocked || exam_finished) return;
+    if (!isMonitoringActive()) return;
     const isMultiScreen = Boolean(
       (window.screen && window.screen.isExtended) ||
       (window.screen && window.screen.availWidth > window.screen.width * 1.05) ||
@@ -767,7 +832,7 @@ function security() {
 
   // ── 7. Keyboard: ONLY track strictly prohibited keys → violation ─────────
   document.addEventListener("keydown", (event) => {
-    if (!unlocked) return;
+    if (!isMonitoringActive()) return;
     const key = event.key;
     const keyL = key.toLowerCase();
 
@@ -817,16 +882,16 @@ function security() {
 
   // ── 8. Block right-click context menu ────────────────────────────────────
   document.addEventListener("contextmenu", (event) => {
-    if (unlocked) {
+    if (isMonitoringActive()) {
       event.preventDefault();
       record("blocked_key", "Right Click (Mouse)");
     }
   });
 
   // ── 9. Block copy via clipboard API ─────────────────────────────────────
-  document.addEventListener("copy",  (event) => { if (unlocked) { event.preventDefault(); record("blocked_key", "Clipboard Copy"); } });
-  document.addEventListener("cut",   (event) => { if (unlocked) { event.preventDefault(); record("blocked_key", "Clipboard Cut"); } });
-  document.addEventListener("paste", (event) => { if (unlocked) { event.preventDefault(); record("blocked_key", "Clipboard Paste"); } });
+  document.addEventListener("copy",  (event) => { if (isMonitoringActive()) { event.preventDefault(); record("blocked_key", "Clipboard Copy"); } });
+  document.addEventListener("cut",   (event) => { if (isMonitoringActive()) { event.preventDefault(); record("blocked_key", "Clipboard Cut"); } });
+  document.addEventListener("paste", (event) => { if (isMonitoringActive()) { event.preventDefault(); record("blocked_key", "Clipboard Paste"); } });
 
   // ── 10. Touch: 3-finger swipe (for touchpad laptops) ────────────────────
   let _tStart = [], _tInProgress = false, _tLast = 0;
@@ -850,6 +915,7 @@ function security() {
     });
     if (!moved) return;
     if (Math.sqrt((sumDx/3)**2 + (sumDy/3)**2) >= 30) {
+      if (!isMonitoringActive()) return;
       _tInProgress = true; _tLast = now;
       record("three_finger_gesture", "touchpad_swipe");
     }
@@ -859,20 +925,16 @@ function security() {
 
   // ── 11. Beacon on close/refresh ─────────────────────────────────────────
   window.addEventListener("beforeunload", () => {
-    if (unlocked) navigator.sendBeacon("/api/activity", new Blob([JSON.stringify({event:"attempt_close"})], {type:"application/json"}));
+    if (isMonitoringActive()) navigator.sendBeacon("/api/activity", new Blob([JSON.stringify({event:"attempt_close"})], {type:"application/json"}));
   });
 
   // ── 12. Active Window & Sidebar Focus Tracker ───────────────────────────
-  let _activeWindowAway = false;
   setInterval(() => {
-    if (!unlocked || exam_finished || window._leavingExam) return;
-    if (!document.hasFocus()) {
-      if (!_activeWindowAway) {
-        _activeWindowAway = true;
-        record("window_blur", "active_sidebar_or_window_focus");
-      }
+    if (!isMonitoringActive()) return;
+    if (!document.hasFocus() || document.hidden) {
+      handleFocusLoss("active_sidebar_or_window_focus", "active_sidebar_or_window_focus");
     } else {
-      _activeWindowAway = false;
+      handleFocusGain("focus_interval");
     }
   }, 400);
 
@@ -1137,7 +1199,7 @@ function security() {
   window._extPromptOpen = false;
 
   function detectExtensions() {
-    if (!unlocked || exam_finished || window._leavingExam) return;
+    if (!isMonitoringActive()) return;
     if (window._extPromptOpen) return; // Modal is already open, do not spam!
     const extName = checkActiveExtensions();
     if (extName) {
@@ -1238,14 +1300,14 @@ function security() {
 
   // Trigger detection on selection change (when extensions show tooltip/floating popup)
   document.addEventListener("selectionchange", () => {
-    if (!unlocked || exam_finished || window._leavingExam) return;
+    if (!isMonitoringActive()) return;
     if (!window._extPromptOpen) setTimeout(detectExtensions, 150);
   });
 
   // Dynamic MutationObserver for newly injected extension elements or attribute changes
   try {
     const observer = new MutationObserver(() => {
-      if (!unlocked || exam_finished || window._leavingExam) return;
+      if (!isMonitoringActive()) return;
       if (!window._extPromptOpen) detectExtensions();
     });
     observer.observe(document.documentElement, { childList: true, subtree: true, attributes: true });
@@ -1253,16 +1315,18 @@ function security() {
 }
 
 async function sendActivity(event, details = "") {
-  if (!unlocked || exam_finished) return;
+  if (!isMonitoringActive()) return;
   try {
     const data = await api("/api/activity", {method: "POST", body: JSON.stringify({event, details})});
     const currentCount = Math.min(5, data.illegal_count || 0);
     $("#illegalCount").textContent = `Tab switches: ${currentCount} / 5`;
     if (data.ignored) return;
     if (data.locked || currentCount >= 5) {
+      setExamLifecycleState(EXAM_STATES.FINISHED);
       unlocked = false;
       exam_finished = true;
       setEditorLock(true, "Exam locked due to violation limit (5/5)");
+      $("#leavePrompt")?.classList.add("hidden");
       $("#fsPrompt")?.classList.add("hidden");
       $("#extPrompt")?.classList.add("hidden");
       alert("Fifth violation (5/5): Your exam has been locked and submitted due to security policy.");
@@ -1384,26 +1448,57 @@ async function submitCode() {
   renderQuestionPalette();
 }
 async function leaveExam() {
-  if (!unlocked) return;
-  window._leavingExam = true;  // suppress tab-switch counting while leaving prompt is open
+  if (!isMonitoringActive()) return;
+  setExamLifecycleState(EXAM_STATES.LEAVE_CONFIRMATION_OPEN);
   const promptEl = document.getElementById("leavePrompt");
   if (promptEl) promptEl.classList.remove("hidden");
+  const yesBtn = document.getElementById("leaveYesBtn");
+  if (yesBtn) {
+    yesBtn.disabled = false;
+    yesBtn.textContent = "YES";
+  }
 }
 window.leaveExam = leaveExam;
 
 document.getElementById("leaveNoBtn")?.addEventListener("click", () => {
   document.getElementById("leavePrompt")?.classList.add("hidden");
-  window._leavingExam = false;  // re-enable tracking if student cancels
+  if (examLifecycleState === EXAM_STATES.LEAVE_CONFIRMATION_OPEN) {
+    setExamLifecycleState(EXAM_STATES.ACTIVE);
+  }
 });
 
 document.getElementById("leaveYesBtn")?.addEventListener("click", async () => {
-  document.getElementById("leavePrompt")?.classList.add("hidden");
+  const yesBtn = document.getElementById("leaveYesBtn");
+  if (examLifecycleState === EXAM_STATES.FINALIZING || examLifecycleState === EXAM_STATES.FINISHED) return;
+  setExamLifecycleState(EXAM_STATES.FINALIZING);
+  if (yesBtn) {
+    yesBtn.disabled = true;
+    yesBtn.textContent = "Finalizing...";
+  }
   try {
-    await api("/api/exam/student-exit", {method: "POST"});
+    const isMcq = window.isMcqExam || (window._examType === 'mcq') || (typeof currentExamType !== 'undefined' && currentExamType === 'mcq');
+    if (isMcq) {
+      try { await api("/api/mcqs/finish", { method: "POST" }); } catch(_) {}
+    }
+    const res = await api("/api/exam/student-exit", {
+      method: "POST",
+      body: JSON.stringify({ reason: "Student confirmed Leave Exam" })
+    });
+    if (!res || res.error) {
+      throw new Error((res && res.error) || "Failed to finalize exam attempt.");
+    }
+    setExamLifecycleState(EXAM_STATES.FINISHED);
+    document.getElementById("leavePrompt")?.classList.add("hidden");
     await exitExamToHome("Exam session completed. Your solutions were saved.", true);
     await refreshExam(true);
   } catch (error) {
-    alert(error.message);
+    console.error("Exam finalization failed:", error);
+    setExamLifecycleState(EXAM_STATES.LEAVE_CONFIRMATION_OPEN);
+    if (yesBtn) {
+      yesBtn.disabled = false;
+      yesBtn.textContent = "YES";
+    }
+    alert("Unable to finalize exam: " + (error.message || "Network error. Please try again."));
   }
 });
 
