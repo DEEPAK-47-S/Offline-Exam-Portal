@@ -137,10 +137,14 @@ def auth(role=None):
                 return jsonify(error='Must change default password', force_password_change=True),403
             # Task 4: Single-session enforcement for students
             if session.get('role') == 'student':
-                c2=conn(); srow=c2.execute('SELECT session_token FROM users WHERE id=?',(session['user_id'],)).fetchone(); c2.close()
-                if not srow or srow['session_token'] != session.get('session_token'):
-                    session.clear()
-                    return jsonify(error='Session expired. You were logged in from another device.',session_expired=True),401
+                c2=conn()
+                try:
+                    srow=c2.execute('SELECT session_token FROM users WHERE id=?',(session['user_id'],)).fetchone()
+                    if not srow or srow['session_token'] != session.get('session_token'):
+                        session.clear()
+                        return jsonify(error='Session expired. You were logged in from another device.',session_expired=True),401
+                finally:
+                    c2.close()
             return fn(*a, **k)
         return w
     return deco
@@ -367,22 +371,28 @@ def get_student_teacher_id(c, uid):
 
 def has_exam_access(uid):
     """True if student can access ANY active exam (coding OR MCQ)."""
-    c=conn(); s,remaining=current_exam(c)
-    tid = get_student_teacher_id(c, uid)
-    row=c.execute('SELECT locked,allowed,joined_at,mcq_locked FROM exam_access WHERE user_id=? AND teacher_id=?',(uid,tid)).fetchone()
-    c.close()
-    if not s['active'] or not row or not row['allowed'] or not row['joined_at']: return False
-    coding_ok = bool(s.get('coding_active') and remaining>0 and not row['locked'])
-    mcq_ok    = bool(s.get('mcq_active') and not row['mcq_locked'])
-    return coding_ok or mcq_ok
+    c=conn()
+    try:
+        s,remaining=current_exam(c)
+        tid = get_student_teacher_id(c, uid)
+        row=c.execute('SELECT locked,allowed,joined_at,mcq_locked FROM exam_access WHERE user_id=? AND teacher_id=?',(uid,tid)).fetchone()
+        if not s or not s.get('active') or not row or not row['allowed'] or not row['joined_at']: return False
+        coding_ok = bool(s.get('coding_active') and remaining>0 and not row['locked'])
+        mcq_ok    = bool(s.get('mcq_active') and not row['mcq_locked'])
+        return coding_ok or mcq_ok
+    finally:
+        c.close()
 
 def has_mcq_access(uid):
     """True only if MCQ exam is active and student is eligible."""
-    c=conn(); s,_=current_exam(c)
-    tid = get_student_teacher_id(c, uid)
-    row=c.execute('SELECT mcq_locked,allowed,joined_at FROM exam_access WHERE user_id=? AND teacher_id=?',(uid,tid)).fetchone()
-    c.close()
-    return bool(s['active'] and s.get('mcq_active') and row and row['allowed'] and row['joined_at'] and not row['mcq_locked'])
+    c=conn()
+    try:
+        s,_=current_exam(c)
+        tid = get_student_teacher_id(c, uid)
+        row=c.execute('SELECT mcq_locked,allowed,joined_at FROM exam_access WHERE user_id=? AND teacher_id=?',(uid,tid)).fetchone()
+        return bool(s and s.get('active') and s.get('mcq_active') and row and row['allowed'] and row['joined_at'] and not row['mcq_locked'])
+    finally:
+        c.close()
 def require_exam_access():
     if session.get('role')!='student' or not has_exam_access(session['user_id']):
         return jsonify(error='Exam is locked. Enter the current exam key after the teacher starts the exam.'),403
@@ -503,37 +513,41 @@ def import_questions():
     except ValueError as e: return jsonify(error=str(e)),400
     import re as _re2
     c=conn(); count=0
-    def fuzzy(row, *keys):
-        for k in keys:
-            if k in row and row[k].strip(): return row[k].strip()
-        # partial match
-        for rk in row:
+    try:
+        def fuzzy(row, *keys):
             for k in keys:
-                if k in rk and row[rk].strip(): return row[rk].strip()
-        return ''
-    for r in rows:
-        title=fuzzy(r,'question_name','title','question','name')
-        prompt=fuzzy(r,'instruction','instructions','prompt','description','problem','problem_statement')
-        language=fuzzy(r,'language','lang') or 'python'
-        langs = [l.strip() for l in language.split(',')]
-        valid_langs = [l for l in langs if l in ('python', 'java', 'c')]
-        language = ','.join(valid_langs) if valid_langs else 'python'
-        if not title: continue
-        cur=c.execute('INSERT INTO questions(teacher_id,title,prompt,language) VALUES(?,?,?,?)',(session['user_id'],title,prompt,language))
-        qid=cur.lastrowid; count+=1
-        # collect test cases: test_case_1_input, test_case_1_output, test_case_1_mark etc.
-        tc_nums=set()
-        for k in r:
-            m=_re2.search(r'(\d+)',k)
-            if m and ('input' in k or 'output' in k or 'mark' in k or 'expected' in k): tc_nums.add(m.group(1))
-        for n in sorted(tc_nums, key=lambda x:int(x)):
-            inp=fuzzy(r,f'test_case_{n}_input',f'input_{n}',f'testcase{n}input',f'tc{n}input',f'case{n}input')
-            out=fuzzy(r,f'test_case_{n}_output',f'test_case_{n}_expected',f'output_{n}',f'expected_{n}',f'testcase{n}output',f'tc{n}output')
-            mark=fuzzy(r,f'test_case_{n}_mark',f'test_case_{n}_marks',f'mark_{n}',f'marks_{n}',f'tc{n}mark')
-            try: mark=float(mark) if mark else 1.0
-            except ValueError: mark=1.0
-            c.execute('INSERT INTO test_cases(question_id,input_data,expected_output,marks,visible) VALUES(?,?,?,?,0)',(qid,inp,out,mark))
-    c.commit(); c.close(); return jsonify(ok=True,imported=count)
+                if k in row and row[k].strip(): return row[k].strip()
+            # partial match
+            for rk in row:
+                for k in keys:
+                    if k in rk and row[rk].strip(): return row[rk].strip()
+            return ''
+        for r in rows:
+            title=fuzzy(r,'question_name','title','question','name')
+            prompt=fuzzy(r,'instruction','instructions','prompt','description','problem','problem_statement')
+            language=fuzzy(r,'language','lang') or 'python'
+            langs = [l.strip() for l in language.split(',')]
+            valid_langs = [l for l in langs if l in ('python', 'java', 'c')]
+            language = ','.join(valid_langs) if valid_langs else 'python'
+            if not title: continue
+            cur=c.execute('INSERT INTO questions(teacher_id,title,prompt,language) VALUES(?,?,?,?)',(session['user_id'],title,prompt,language))
+            qid=cur.lastrowid; count+=1
+            # collect test cases: test_case_1_input, test_case_1_output, test_case_1_mark etc.
+            tc_nums=set()
+            for k in r:
+                m=_re2.search(r'(\d+)',k)
+                if m and ('input' in k or 'output' in k or 'mark' in k or 'expected' in k): tc_nums.add(m.group(1))
+            for n in sorted(tc_nums, key=lambda x:int(x)):
+                inp=fuzzy(r,f'test_case_{n}_input',f'input_{n}',f'testcase{n}input',f'tc{n}input',f'case{n}input')
+                out=fuzzy(r,f'test_case_{n}_output',f'test_case_{n}_expected',f'output_{n}',f'expected_{n}',f'testcase{n}output',f'tc{n}output')
+                mark=fuzzy(r,f'test_case_{n}_mark',f'test_case_{n}_marks',f'mark_{n}',f'marks_{n}',f'tc{n}mark')
+                try: mark=float(mark) if mark else 1.0
+                except ValueError: mark=1.0
+                c.execute('INSERT INTO test_cases(question_id,input_data,expected_output,marks,visible) VALUES(?,?,?,?,0)',(qid,inp,out,mark))
+        c.commit()
+        return jsonify(ok=True,imported=count)
+    finally:
+        c.close()
 
 @app.get('/api/mcqs')
 @auth()
@@ -786,29 +800,33 @@ def save_draft():
     if locked: return locked
     d=request.get_json() or {}; qid=d.get('question_id'); code=d.get('code',''); lang=d.get('language','python')
     c=conn()
-    tid = get_student_teacher_id(c, session['user_id'])
-    if not is_question_authorized(c, session['user_id'], tid, 'coding', qid, session.get('exam_key')):
-        c.close(); return jsonify(error='Unauthorized question draft.'), 403
-    c.execute('INSERT INTO drafts(user_id,question_id,language,code,updated_at) VALUES(?,?,?,?,?) ON CONFLICT(user_id,question_id,language) DO UPDATE SET code=excluded.code, updated_at=excluded.updated_at',(session['user_id'],qid,lang,code,now_ist_str()))
-    c.commit(); c.close()
-    return jsonify(ok=True)
+    try:
+        tid = get_student_teacher_id(c, session['user_id'])
+        if not is_question_authorized(c, session['user_id'], tid, 'coding', qid, session.get('exam_key')):
+            return jsonify(error='Unauthorized question draft.'), 403
+        c.execute('INSERT INTO drafts(user_id,question_id,language,code,updated_at) VALUES(?,?,?,?,?) ON CONFLICT(user_id,question_id,language) DO UPDATE SET code=excluded.code, updated_at=excluded.updated_at',(session['user_id'],qid,lang,code,now_ist_str()))
+        c.commit()
+        return jsonify(ok=True)
+    finally:
+        c.close()
 
 @app.get('/api/drafts')
 @auth('student')
 def get_drafts():
     c=conn()
-    tid = get_student_teacher_id(c, session['user_id'])
-    state, qids, locked = get_effective_assignment(c, session['user_id'], tid, 'coding', session.get('exam_key'))
-    if state == 'INVALID':
+    try:
+        tid = get_student_teacher_id(c, session['user_id'])
+        state, qids, locked = get_effective_assignment(c, session['user_id'], tid, 'coding', session.get('exam_key'))
+        if state == 'INVALID':
+            return jsonify(error="Invalid question assignment."), 400
+        if (state == 'INDIVIDUAL' or (state == 'COMMON' and locked)) and qids:
+            placeholders = ','.join('?' * len(qids))
+            rows=c.execute(f'SELECT question_id, language, code FROM drafts WHERE user_id=? AND question_id IN ({placeholders})', [session['user_id']] + qids).fetchall()
+        else:
+            rows=c.execute('SELECT question_id, language, code FROM drafts WHERE user_id=?',(session['user_id'],)).fetchall()
+        return jsonify([dict(x) for x in rows])
+    finally:
         c.close()
-        return jsonify(error="Invalid question assignment."), 400
-    if (state == 'INDIVIDUAL' or (state == 'COMMON' and locked)) and qids:
-        placeholders = ','.join('?' * len(qids))
-        rows=c.execute(f'SELECT question_id, language, code FROM drafts WHERE user_id=? AND question_id IN ({placeholders})', [session['user_id']] + qids).fetchall()
-    else:
-        rows=c.execute('SELECT question_id, language, code FROM drafts WHERE user_id=?',(session['user_id'],)).fetchall()
-    c.close()
-    return jsonify([dict(x) for x in rows])
 
 @app.get('/api/leaderboard/download')
 @auth()
@@ -819,32 +837,34 @@ def leaderboard_download():
     sort_order=request.args.get('sort','desc')
     fmt=request.args.get('format','csv').lower()  # 'csv' or 'xlsx'
     c=conn()
-    teacher_id = session.get('teacher_id') or session.get('user_id')
-    mcq_total=c.execute('SELECT COALESCE(SUM(marks),0) FROM mcqs WHERE teacher_id=?', (teacher_id,)).fetchone()[0] or 0
-    coding_total=c.execute('SELECT COALESCE(SUM(marks),0) FROM test_cases t JOIN questions q ON t.question_id=q.id WHERE q.teacher_id=?', (teacher_id,)).fetchone()[0] or 0
-    students=c.execute("SELECT u.id,u.name,u.username,p.department,p.semester,p.section,p.register_number,e.final_score,e.mcq_final_score,e.total_time FROM users u LEFT JOIN student_profiles p ON p.user_id=u.id LEFT JOIN exam_access e ON e.user_id=u.id AND e.teacher_id=? WHERE u.role='student' ORDER BY u.name", (teacher_id,)).fetchall()
-    rows=[]
-    for s in students:
-        dept=s['department'] or ''; sec=s['section'] or ''
-        cls=f"{dept}-{sec}".strip('-') if (dept or sec) else dept
-        if class_filter:
-            cf=class_filter.lower()
-            if cf not in cls.lower() and cf not in dept.lower(): continue
-        cs=round(s['final_score'] or 0,2); ms=round(s['mcq_final_score'] or 0,2)
-        state_c, c_qids, _ = get_effective_assignment(c, s['id'], teacher_id, 'coding')
-        state_m, m_qids, _ = get_effective_assignment(c, s['id'], teacher_id, 'mcq')
-        is_ind_c = (state_c == 'INDIVIDUAL')
-        is_ind_m = (state_m == 'INDIVIDUAL')
-        s_c_tot = coding_total
-        s_m_tot = mcq_total
-        if is_ind_c and c_qids:
-            pl_c = ','.join('?' * len(c_qids))
-            s_c_tot = round(c.execute(f'SELECT COALESCE(SUM(marks),0) FROM test_cases WHERE question_id IN ({pl_c})', c_qids).fetchone()[0] or 0, 2)
-        if is_ind_m and m_qids:
-            pl_m = ','.join('?' * len(m_qids))
-            s_m_tot = round(c.execute(f'SELECT COALESCE(SUM(marks),0) FROM mcqs WHERE id IN ({pl_m})', m_qids).fetchone()[0] or 0, 2)
-        rows.append({'name':s['name'],'reg':s['register_number'] or s['username'],'dept':dept,'section':sec,'class':cls,'semester':s['semester'] or '','coding':cs,'coding_total':round(s_c_tot,2),'mcq':ms,'mcq_total':round(s_m_tot,2),'total':round(cs+ms,2),'grand_total':round(s_c_tot+s_m_tot,2),'time':s['total_time'] or 0})
-    c.close()
+    try:
+        teacher_id = session.get('teacher_id') or session.get('user_id')
+        mcq_total=c.execute('SELECT COALESCE(SUM(marks),0) FROM mcqs WHERE teacher_id=?', (teacher_id,)).fetchone()[0] or 0
+        coding_total=c.execute('SELECT COALESCE(SUM(marks),0) FROM test_cases t JOIN questions q ON t.question_id=q.id WHERE q.teacher_id=?', (teacher_id,)).fetchone()[0] or 0
+        students=c.execute("SELECT u.id,u.name,u.username,p.department,p.semester,p.section,p.register_number,e.final_score,e.mcq_final_score,e.total_time FROM users u LEFT JOIN student_profiles p ON p.user_id=u.id LEFT JOIN exam_access e ON e.user_id=u.id AND e.teacher_id=? WHERE u.role='student' ORDER BY u.name", (teacher_id,)).fetchall()
+        rows=[]
+        for s in students:
+            dept=s['department'] or ''; sec=s['section'] or ''
+            cls=f"{dept}-{sec}".strip('-') if (dept or sec) else dept
+            if class_filter:
+                cf=class_filter.lower()
+                if cf not in cls.lower() and cf not in dept.lower(): continue
+            cs=round(s['final_score'] or 0,2); ms=round(s['mcq_final_score'] or 0,2)
+            state_c, c_qids, _ = get_effective_assignment(c, s['id'], teacher_id, 'coding')
+            state_m, m_qids, _ = get_effective_assignment(c, s['id'], teacher_id, 'mcq')
+            is_ind_c = (state_c == 'INDIVIDUAL')
+            is_ind_m = (state_m == 'INDIVIDUAL')
+            s_c_tot = coding_total
+            s_m_tot = mcq_total
+            if is_ind_c and c_qids:
+                pl_c = ','.join('?' * len(c_qids))
+                s_c_tot = round(c.execute(f'SELECT COALESCE(SUM(marks),0) FROM test_cases WHERE question_id IN ({pl_c})', c_qids).fetchone()[0] or 0, 2)
+            if is_ind_m and m_qids:
+                pl_m = ','.join('?' * len(m_qids))
+                s_m_tot = round(c.execute(f'SELECT COALESCE(SUM(marks),0) FROM mcqs WHERE id IN ({pl_m})', m_qids).fetchone()[0] or 0, 2)
+            rows.append({'name':s['name'],'reg':s['register_number'] or s['username'],'dept':dept,'section':sec,'class':cls,'semester':s['semester'] or '','coding':cs,'coding_total':round(s_c_tot,2),'mcq':ms,'mcq_total':round(s_m_tot,2),'total':round(cs+ms,2),'grand_total':round(s_c_tot+s_m_tot,2),'time':s['total_time'] or 0})
+    finally:
+        c.close()
     rows.sort(key=lambda x:x['total'],reverse=(sort_order=='desc'))
     # Task 6: filename = class name or 'overall_leaderboard'
     safe_class=class_filter.replace(' ','_') if class_filter else 'overall'
@@ -1030,109 +1050,109 @@ def check_plagiarism():
 @auth('student')
 def student_result():
     uid = session['user_id']; c = conn()
-    tid = get_student_teacher_id(c, uid)
-    user_row = c.execute("SELECT u.id, u.name, u.username, p.department, p.year, p.class, p.section, p.register_number FROM users u LEFT JOIN student_profiles p ON p.user_id=u.id WHERE u.id=?", (uid,)).fetchone()
-    if not user_row: c.close(); return jsonify(error="Student not found"), 404
-    acc = c.execute("SELECT * FROM exam_access WHERE user_id=? AND teacher_id=?", (uid, tid)).fetchone()
-    state_c, assigned_c_ids, _ = get_effective_assignment(c, uid, tid, 'coding')
-    state_m, assigned_m_ids, _ = get_effective_assignment(c, uid, tid, 'mcq')
-    is_ind_c = (state_c == 'INDIVIDUAL')
-    is_ind_m = (state_m == 'INDIVIDUAL')
-    if is_ind_c and assigned_c_ids:
-        pl_c = ','.join('?' * len(assigned_c_ids))
-        raw_coding_total = round(c.execute(f'SELECT COALESCE(SUM(marks),0) FROM test_cases t JOIN questions q ON t.question_id=q.id WHERE q.teacher_id=? AND q.id IN ({pl_c})', [tid] + assigned_c_ids).fetchone()[0] or 0, 2)
-    else:
-        raw_coding_total = round(c.execute('SELECT COALESCE(SUM(marks),0) FROM test_cases t JOIN questions q ON t.question_id=q.id WHERE q.teacher_id=?', (tid,)).fetchone()[0] or 0, 2)
-    if is_ind_m and assigned_m_ids:
-        pl_m = ','.join('?' * len(assigned_m_ids))
-        raw_mcq_total = round(c.execute(f'SELECT COALESCE(SUM(marks),0) FROM mcqs WHERE teacher_id=? AND id IN ({pl_m})', [tid] + assigned_m_ids).fetchone()[0] or 0, 2)
-    else:
-        raw_mcq_total = round(c.execute('SELECT COALESCE(SUM(marks),0) FROM mcqs WHERE teacher_id=?', (tid,)).fetchone()[0] or 0, 2)
-    raw_coding_score = float(acc['final_score'] or 0.0) if acc and acc['final_score'] is not None else 0.0
-    raw_mcq_score = float(acc['mcq_final_score'] or 0.0) if acc and acc['mcq_final_score'] is not None else 0.0
-
-    # Determine what exam(s) the student actually attended
-    has_coding_subs = c.execute("SELECT count(*) FROM submissions WHERE user_id=? AND teacher_id=?", (uid, tid)).fetchone()[0] > 0
-    has_coding_final = acc is not None and acc['final_score'] is not None
-    attended_coding = bool(has_coding_subs or has_coding_final or (session.get('exam_type') == 'coding' and acc and acc['joined_at']))
-
-    has_mcq_subs = c.execute("SELECT count(*) FROM mcq_status WHERE student_id=? AND teacher_id=?", (uid, tid)).fetchone()[0] > 0
-    has_mcq_final = acc is not None and acc['mcq_final_score'] is not None and (acc['mcq_final_score'] > 0 or acc['mcq_locked'])
-    attended_mcq = bool(has_mcq_subs or has_mcq_final or (session.get('exam_type') == 'mcq' and acc and acc['joined_at']))
-
-    # Fallback to current session exam_type or active exam if neither registered yet
-    if not attended_coding and not attended_mcq:
-        if session.get('exam_type') == 'mcq':
-            attended_mcq = True
+    try:
+        tid = get_student_teacher_id(c, uid)
+        user_row = c.execute("SELECT u.id, u.name, u.username, p.department, p.year, p.class, p.section, p.register_number FROM users u LEFT JOIN student_profiles p ON p.user_id=u.id WHERE u.id=?", (uid,)).fetchone()
+        if not user_row: return jsonify(error="Student not found"), 404
+        acc = c.execute("SELECT * FROM exam_access WHERE user_id=? AND teacher_id=?", (uid, tid)).fetchone()
+        state_c, assigned_c_ids, _ = get_effective_assignment(c, uid, tid, 'coding')
+        state_m, assigned_m_ids, _ = get_effective_assignment(c, uid, tid, 'mcq')
+        is_ind_c = (state_c == 'INDIVIDUAL')
+        is_ind_m = (state_m == 'INDIVIDUAL')
+        if is_ind_c and assigned_c_ids:
+            pl_c = ','.join('?' * len(assigned_c_ids))
+            raw_coding_total = round(c.execute(f'SELECT COALESCE(SUM(marks),0) FROM test_cases t JOIN questions q ON t.question_id=q.id WHERE q.teacher_id=? AND q.id IN ({pl_c})', [tid] + assigned_c_ids).fetchone()[0] or 0, 2)
         else:
-            attended_coding = True
+            raw_coding_total = round(c.execute('SELECT COALESCE(SUM(marks),0) FROM test_cases t JOIN questions q ON t.question_id=q.id WHERE q.teacher_id=?', (tid,)).fetchone()[0] or 0, 2)
+        if is_ind_m and assigned_m_ids:
+            pl_m = ','.join('?' * len(assigned_m_ids))
+            raw_mcq_total = round(c.execute(f'SELECT COALESCE(SUM(marks),0) FROM mcqs WHERE teacher_id=? AND id IN ({pl_m})', [tid] + assigned_m_ids).fetchone()[0] or 0, 2)
+        else:
+            raw_mcq_total = round(c.execute('SELECT COALESCE(SUM(marks),0) FROM mcqs WHERE teacher_id=?', (tid,)).fetchone()[0] or 0, 2)
+        raw_coding_score = float(acc['final_score'] or 0.0) if acc and acc['final_score'] is not None else 0.0
+        raw_mcq_score = float(acc['mcq_final_score'] or 0.0) if acc and acc['mcq_final_score'] is not None else 0.0
 
-    if attended_coding and not attended_mcq:
-        exam_mode = 'coding'
-        coding_score = raw_coding_score
-        coding_total = raw_coding_total
-        mcq_score = 0.0
-        mcq_total = 0.0
-        total_score = coding_score
-        grand_total = coding_total
-    elif attended_mcq and not attended_coding:
-        exam_mode = 'mcq'
-        coding_score = 0.0
-        coding_total = 0.0
-        mcq_score = raw_mcq_score
-        mcq_total = raw_mcq_total
-        total_score = mcq_score
-        grand_total = mcq_total
-    else:
-        exam_mode = 'both'
-        coding_score = raw_coding_score
-        coding_total = raw_coding_total
-        mcq_score = raw_mcq_score
-        mcq_total = raw_mcq_total
-        total_score = round(coding_score + mcq_score, 2)
-        grand_total = round(coding_total + mcq_total, 2)
+        # Determine what exam(s) the student actually attended
+        has_coding_subs = c.execute("SELECT count(*) FROM submissions WHERE user_id=? AND teacher_id=?", (uid, tid)).fetchone()[0] > 0
+        has_coding_final = acc is not None and acc['final_score'] is not None
+        attended_coding = bool(has_coding_subs or has_coding_final or (session.get('exam_type') == 'coding' and acc and acc['joined_at']))
 
-    percentage = round((total_score / grand_total * 100), 1) if grand_total > 0 else 0.0
-    status = "PASS" if percentage >= 50.0 else "NEEDS IMPROVEMENT"
+        has_mcq_subs = c.execute("SELECT count(*) FROM mcq_status WHERE student_id=? AND teacher_id=?", (uid, tid)).fetchone()[0] > 0
+        has_mcq_final = acc is not None and acc['mcq_final_score'] is not None and (acc['mcq_final_score'] > 0 or acc['mcq_locked'])
+        attended_mcq = bool(has_mcq_subs or has_mcq_final or (session.get('exam_type') == 'mcq' and acc and acc['joined_at']))
 
-    questions_list = []
-    if attended_coding:
-        q_filter = (" AND q.id IN (" + ",".join(["?"] * len(assigned_c_ids)) + ") ") if (is_ind_c and assigned_c_ids) else ""
-        q_params = [uid, tid, uid, tid, uid, tid, uid, tid, tid] + (assigned_c_ids if (is_ind_c and assigned_c_ids) else [])
-        q_rows = c.execute("""
-            SELECT q.id, q.title, q.prompt, q.language,
-                   COALESCE((SELECT SUM(marks) FROM test_cases WHERE question_id=q.id), 0) as max_marks,
-                   (SELECT MAX(score) FROM submissions WHERE user_id=? AND question_id=q.id AND teacher_id=?) as scored_marks,
-                   (SELECT language FROM submissions WHERE user_id=? AND question_id=q.id AND teacher_id=? ORDER BY id DESC LIMIT 1) as submitted_lang,
-                   (SELECT time_seconds FROM submissions WHERE user_id=? AND question_id=q.id AND teacher_id=? ORDER BY id DESC LIMIT 1) as time_taken,
-                   (SELECT code FROM submissions WHERE user_id=? AND question_id=q.id AND teacher_id=? ORDER BY id DESC LIMIT 1) as submitted_code
-            FROM questions q WHERE q.teacher_id=? AND q.active=1 """ + q_filter + """ORDER BY q.id
-        """, q_params).fetchall()
-        for q in q_rows:
-            scored = float(q['scored_marks'] or 0.0) if q['scored_marks'] is not None else 0.0
-            max_m = float(q['max_marks'] or 0.0)
-            q_status = "Full Marks" if (scored >= max_m and max_m > 0) else ("Partial" if scored > 0 else "Not Solved")
-            questions_list.append({"id": q['id'], "title": q['title'], "language": q['submitted_lang'] or q['language'], "max_marks": max_m, "scored_marks": scored, "status": q_status, "time_seconds": q['time_taken'] or 0, "has_code": bool(q['submitted_code'])})
+        # Fallback to current session exam_type or active exam if neither registered yet
+        if not attended_coding and not attended_mcq:
+            if session.get('exam_type') == 'mcq':
+                attended_mcq = True
+            else:
+                attended_coding = True
 
-    mcq_list = []
-    if attended_mcq:
-        m_filter = (" AND m.id IN (" + ",".join(["?"] * len(assigned_m_ids)) + ") ") if (is_ind_m and assigned_m_ids) else ""
-        m_params = [uid, tid, tid] + (assigned_m_ids if (is_ind_m and assigned_m_ids) else [])
-        mcq_rows = c.execute("""
-            SELECT m.id, m.question, m.marks, s.selected_option, s.is_correct, m.correct_option
-            FROM mcqs m LEFT JOIN mcq_status s ON s.mcq_id=m.id AND s.student_id=? AND s.teacher_id=?
-            WHERE m.teacher_id=? """ + m_filter + """ORDER BY m.id
-        """, m_params).fetchall()
-        for m in mcq_rows:
-            mcq_list.append({"id": m['id'], "question": m['question'], "marks": float(m['marks'] or 1.0), "selected_option": m['selected_option'] or '-', "is_correct": bool(m['is_correct']) if m['is_correct'] is not None else False})
+        if attended_coding and not attended_mcq:
+            exam_mode = 'coding'
+            coding_score = raw_coding_score
+            coding_total = raw_coding_total
+            mcq_score = 0.0
+            mcq_total = 0.0
+            total_score = coding_score
+            grand_total = coding_total
+        elif attended_mcq and not attended_coding:
+            exam_mode = 'mcq'
+            coding_score = 0.0
+            coding_total = 0.0
+            mcq_score = raw_mcq_score
+            mcq_total = raw_mcq_total
+            total_score = mcq_score
+            grand_total = mcq_total
+        else:
+            exam_mode = 'both'
+            coding_score = raw_coding_score
+            coding_total = raw_coding_total
+            mcq_score = raw_mcq_score
+            mcq_total = raw_mcq_total
+            total_score = round(coding_score + mcq_score, 2)
+            grand_total = round(coding_total + mcq_total, 2)
 
-    c.close()
-    return jsonify(
-        ok=True,
-        student={
-            "name": user_row['name'],
-            "username": user_row['username'],
-            "department": user_row['department'] or '',
+        percentage = round((total_score / grand_total * 100), 1) if grand_total > 0 else 0.0
+        status = "PASS" if percentage >= 50.0 else "NEEDS IMPROVEMENT"
+
+        questions_list = []
+        if attended_coding:
+            q_filter = (" AND q.id IN (" + ",".join(["?"] * len(assigned_c_ids)) + ") ") if (is_ind_c and assigned_c_ids) else ""
+            q_params = [uid, tid, uid, tid, uid, tid, uid, tid, tid] + (assigned_c_ids if (is_ind_c and assigned_c_ids) else [])
+            q_rows = c.execute("""
+                SELECT q.id, q.title, q.prompt, q.language,
+                       COALESCE((SELECT SUM(marks) FROM test_cases WHERE question_id=q.id), 0) as max_marks,
+                       (SELECT MAX(score) FROM submissions WHERE user_id=? AND question_id=q.id AND teacher_id=?) as scored_marks,
+                       (SELECT language FROM submissions WHERE user_id=? AND question_id=q.id AND teacher_id=? ORDER BY id DESC LIMIT 1) as submitted_lang,
+                       (SELECT time_seconds FROM submissions WHERE user_id=? AND question_id=q.id AND teacher_id=? ORDER BY id DESC LIMIT 1) as time_taken,
+                       (SELECT code FROM submissions WHERE user_id=? AND question_id=q.id AND teacher_id=? ORDER BY id DESC LIMIT 1) as submitted_code
+                FROM questions q WHERE q.teacher_id=? AND q.active=1 """ + q_filter + """ORDER BY q.id
+            """, q_params).fetchall()
+            for q in q_rows:
+                scored = float(q['scored_marks'] or 0.0) if q['scored_marks'] is not None else 0.0
+                max_m = float(q['max_marks'] or 0.0)
+                q_status = "Full Marks" if (scored >= max_m and max_m > 0) else ("Partial" if scored > 0 else "Not Solved")
+                questions_list.append({"id": q['id'], "title": q['title'], "language": q['submitted_lang'] or q['language'], "max_marks": max_m, "scored_marks": scored, "status": q_status, "time_seconds": q['time_taken'] or 0, "has_code": bool(q['submitted_code'])})
+
+        mcq_list = []
+        if attended_mcq:
+            m_filter = (" AND m.id IN (" + ",".join(["?"] * len(assigned_m_ids)) + ") ") if (is_ind_m and assigned_m_ids) else ""
+            m_params = [uid, tid, tid] + (assigned_m_ids if (is_ind_m and assigned_m_ids) else [])
+            mcq_rows = c.execute("""
+                SELECT m.id, m.question, m.marks, s.selected_option, s.is_correct, m.correct_option
+                FROM mcqs m LEFT JOIN mcq_status s ON s.mcq_id=m.id AND s.student_id=? AND s.teacher_id=?
+                WHERE m.teacher_id=? """ + m_filter + """ORDER BY m.id
+            """, m_params).fetchall()
+            for m in mcq_rows:
+                mcq_list.append({"id": m['id'], "question": m['question'], "marks": float(m['marks'] or 1.0), "selected_option": m['selected_option'] or '-', "is_correct": bool(m['is_correct']) if m['is_correct'] is not None else False})
+
+        return jsonify(
+            ok=True,
+            student={
+                "name": user_row['name'],
+                "username": user_row['username'],
+                "department": user_row['department'] or '',
             "year": user_row['year'] or '',
             "class": user_row['class'] or '',
             "section": user_row['section'] or '',
@@ -1154,10 +1174,12 @@ def student_result():
             "violations": (acc['violations'] if acc else 0) or 0,
             "locked": bool(acc['locked'] if acc else False)
         },
-        questions=questions_list,
-        mcqs=mcq_list,
-        exam_date=now_ist_str()
-    )
+            questions=questions_list,
+            mcqs=mcq_list,
+            exam_date=now_ist_str()
+        )
+    finally:
+        c.close()
 
 @app.get('/api/courses')
 @auth()
@@ -1175,13 +1197,25 @@ def add_topic():
 @auth('teacher')
 def add_test_case():
     d=request.get_json() or {}; c=conn()
-    q = c.execute('SELECT id FROM questions WHERE id=? AND teacher_id=?', (d.get('question_id'), session['user_id'])).fetchone()
-    if not q: c.close(); return jsonify(error='Question not found or access denied.'), 403
-    c.execute('INSERT INTO test_cases(question_id,input_data,expected_output,marks,visible) VALUES(?,?,?,?,?)',(d.get('question_id'),d.get('input_data',''),d.get('expected_output',''),d.get('marks',1),bool(d.get('visible')))); c.commit(); c.close(); return jsonify(ok=True)
+    try:
+        q = c.execute('SELECT id FROM questions WHERE id=? AND teacher_id=?', (d.get('question_id'), session['user_id'])).fetchone()
+        if not q: return jsonify(error='Question not found or access denied.'), 403
+        c.execute('INSERT INTO test_cases(question_id,input_data,expected_output,marks,visible) VALUES(?,?,?,?,?)',(d.get('question_id'),d.get('input_data',''),d.get('expected_output',''),d.get('marks',1),bool(d.get('visible'))))
+        c.commit()
+        return jsonify(ok=True)
+    finally:
+        c.close()
+
 @app.get('/api/test-cases/<int:question_id>')
 @auth('teacher')
 def list_test_cases(question_id):
-    c=conn(); rows=c.execute('SELECT t.* FROM test_cases t JOIN questions q ON t.question_id = q.id WHERE t.question_id=? AND q.teacher_id=? ORDER BY t.id',(question_id, session['user_id'])).fetchall(); c.close(); return jsonify([dict(x) for x in rows])
+    c=conn()
+    try:
+        rows=c.execute('SELECT t.* FROM test_cases t JOIN questions q ON t.question_id = q.id WHERE t.question_id=? AND q.teacher_id=? ORDER BY t.id',(question_id, session['user_id'])).fetchall()
+        return jsonify([dict(x) for x in rows])
+    finally:
+        c.close()
+
 @app.put('/api/test-cases/<int:case_id>')
 @auth('teacher')
 def update_test_case(case_id):
@@ -1189,33 +1223,45 @@ def update_test_case(case_id):
     try: marks=float(d.get('marks', 1))
     except (TypeError, ValueError): return jsonify(error='Marks must be numeric.'),400
     c=conn()
-    q = c.execute('SELECT t.id FROM test_cases t JOIN questions q ON t.question_id = q.id WHERE t.id=? AND q.teacher_id=?', (case_id, session['user_id'])).fetchone()
-    if not q: c.close(); return jsonify(error='Test case not found or access denied.'), 403
-    cur=c.execute('UPDATE test_cases SET input_data=?,expected_output=?,marks=?,visible=? WHERE id=?',(d.get('input_data',''),d.get('expected_output',''),marks,int(bool(d.get('visible'))),case_id)); c.commit(); c.close()
-    if not cur.rowcount: return jsonify(error='Test case not found.'),404
-    return jsonify(ok=True)
+    try:
+        q = c.execute('SELECT t.id FROM test_cases t JOIN questions q ON t.question_id = q.id WHERE t.id=? AND q.teacher_id=?', (case_id, session['user_id'])).fetchone()
+        if not q: return jsonify(error='Test case not found or access denied.'), 403
+        cur=c.execute('UPDATE test_cases SET input_data=?,expected_output=?,marks=?,visible=? WHERE id=?',(d.get('input_data',''),d.get('expected_output',''),marks,int(bool(d.get('visible'))),case_id))
+        c.commit()
+        if not cur.rowcount: return jsonify(error='Test case not found.'),404
+        return jsonify(ok=True)
+    finally:
+        c.close()
 
 @app.delete('/api/test-cases/<int:case_id>')
 @auth('teacher')
 def delete_test_case(case_id):
     c=conn()
-    q = c.execute('SELECT t.id FROM test_cases t JOIN questions q ON t.question_id = q.id WHERE t.id=? AND q.teacher_id=?', (case_id, session['user_id'])).fetchone()
-    if not q: c.close(); return jsonify(error='Test case not found or access denied.'), 403
-    cur=c.execute('DELETE FROM test_cases WHERE id=?',(case_id,)); c.commit(); c.close()
-    if not cur.rowcount: return jsonify(error='Test case not found.'),404
-    return jsonify(ok=True)
+    try:
+        q = c.execute('SELECT t.id FROM test_cases t JOIN questions q ON t.question_id = q.id WHERE t.id=? AND q.teacher_id=?', (case_id, session['user_id'])).fetchone()
+        if not q: return jsonify(error='Test case not found or access denied.'), 403
+        cur=c.execute('DELETE FROM test_cases WHERE id=?',(case_id,))
+        c.commit()
+        if not cur.rowcount: return jsonify(error='Test case not found.'),404
+        return jsonify(ok=True)
+    finally:
+        c.close()
+
 @app.get('/api/exam-state')
 @auth()
 def exam_state():
-    c=conn(); s,remaining=current_exam(c); joined=False; locked=False; row=None; has_result=False
-    if session.get('role')=='student':
-        tid = get_student_teacher_id(c, session['user_id'])
-        row=c.execute('SELECT locked,allowed,joined_at,violations,final_score,mcq_final_score FROM exam_access WHERE user_id=? AND teacher_id=?',(session['user_id'],tid)).fetchone()
-        joined=bool(row and row['joined_at']); locked=bool(row and row['locked'])
-        has_result=bool(row and (row['final_score'] is not None or row['mcq_final_score'] is not None or row['locked']))
-    c.close()
-    is_staff = session.get('role') in ('teacher','admin')
-    return jsonify(active=bool(s['active']),remaining=remaining,joined=joined,locked=locked,allowed=bool(row and row['allowed']) if session.get('role')=='student' else True,illegal_count=illegal_count(session['user_id']) if session.get('role')=='student' else 0,access_code=s['access_code'] if is_staff else None,mcq_access_code=s.get('mcq_access_code') if is_staff else None,has_result=has_result)
+    c=conn()
+    try:
+        s,remaining=current_exam(c); joined=False; locked=False; row=None; has_result=False
+        if session.get('role')=='student':
+            tid = get_student_teacher_id(c, session['user_id'])
+            row=c.execute('SELECT locked,allowed,joined_at,violations,final_score,mcq_final_score FROM exam_access WHERE user_id=? AND teacher_id=?',(session['user_id'],tid)).fetchone()
+            joined=bool(row and row['joined_at']); locked=bool(row and row['locked'])
+            has_result=bool(row and (row['final_score'] is not None or row['mcq_final_score'] is not None or row['locked']))
+        is_staff = session.get('role') in ('teacher','admin')
+        return jsonify(active=bool(s['active']),remaining=remaining,joined=joined,locked=locked,allowed=bool(row and row['allowed']) if session.get('role')=='student' else True,illegal_count=illegal_count(session['user_id']) if session.get('role')=='student' else 0,access_code=s['access_code'] if is_staff else None,mcq_access_code=s.get('mcq_access_code') if is_staff else None,has_result=has_result)
+    finally:
+        c.close()
 @app.post('/api/change_password')
 @auth()
 def change_password():
@@ -1721,11 +1767,22 @@ def read_import_file(f):
             result.append(h)
         return result
     if f.filename.lower().endswith('.csv'):
-        lines = f.read().decode('utf-8-sig').splitlines()
+        raw = f.read()
+        try:
+            content = raw.decode('utf-8-sig')
+        except UnicodeDecodeError:
+            try:
+                content = raw.decode('cp1252')
+            except UnicodeDecodeError:
+                content = raw.decode('latin-1', errors='replace')
+        lines = content.splitlines()
         if lines:
             reader = csv.reader(lines)
-            heads = norm_heads(next(reader))
-            rows = [dict(zip(heads, [str(x).strip() for x in r])) for r in reader]
+            try:
+                heads = norm_heads(next(reader))
+                rows = [dict(zip(heads, [str(x).strip() for x in r])) for r in reader]
+            except StopIteration:
+                rows = []
     else:
         try:
             from openpyxl import load_workbook
@@ -1743,20 +1800,24 @@ def import_people(role):
     try: rows=read_import_file(f)
     except ValueError as error: return jsonify(error=str(error)),400
     c=conn(); count=0
-    for r in rows:
-        name=r.get('name','').strip()
-        username=(r.get('username') or r.get('registration_number') or r.get('registernumber') or r.get('register_number') or r.get('staff_number') or '').strip()
-        password=r.get('password','').strip()
-        dept=r.get('department','').strip()
-        if name and username and password:
-            c.execute('INSERT OR REPLACE INTO users(username,name,role,password_hash,department) VALUES(?,?,?,?,?)',(username,name,role,generate_password_hash(password),dept))
-            if role=='student':
-                uid=c.execute('SELECT id FROM users WHERE username=?',(username,)).fetchone()['id']
-                c.execute('INSERT OR IGNORE INTO exam_access(user_id,teacher_id,allowed,violations) VALUES(?,?,1,0)',(uid,session['user_id']))
-                section=r.get('section') or r.get('session') or ''
-                c.execute('INSERT OR REPLACE INTO student_profiles(user_id,register_number,department,year,semester,section) VALUES(?,?,?,?,?,?)',(uid,r.get('registernumber') or r.get('register_number') or username,dept,r.get('year') or '',r.get('semester') or '',section))
-            count+=1
-    c.commit(); c.close(); return jsonify(ok=True,imported=count)
+    try:
+        for r in rows:
+            name=r.get('name','').strip()
+            username=(r.get('username') or r.get('registration_number') or r.get('registernumber') or r.get('register_number') or r.get('staff_number') or '').strip()
+            password=r.get('password','').strip()
+            dept=r.get('department','').strip()
+            if name and username and password:
+                c.execute('INSERT OR REPLACE INTO users(username,name,role,password_hash,department) VALUES(?,?,?,?,?)',(username,name,role,generate_password_hash(password),dept))
+                if role=='student':
+                    uid=c.execute('SELECT id FROM users WHERE username=?',(username,)).fetchone()['id']
+                    c.execute('INSERT OR IGNORE INTO exam_access(user_id,teacher_id,allowed,violations) VALUES(?,?,1,0)',(uid,session['user_id']))
+                    section=r.get('section') or r.get('session') or ''
+                    c.execute('INSERT OR REPLACE INTO student_profiles(user_id,register_number,department,year,semester,section) VALUES(?,?,?,?,?,?)',(uid,r.get('registernumber') or r.get('register_number') or username,dept,r.get('year') or '',r.get('semester') or '',section))
+                count+=1
+        c.commit()
+        return jsonify(ok=True,imported=count)
+    finally:
+        c.close()
 
 @app.post('/api/mcqs/import')
 @auth('teacher')
@@ -1766,21 +1827,25 @@ def import_mcqs():
     try: rows=read_import_file(f)
     except ValueError as error: return jsonify(error=str(error)),400
     c=conn(); count=0
-    for r in rows:
-        q=r.get('question') or r.get('questions')
-        a=r.get('option_a') or r.get('option a')
-        b=r.get('option_b') or r.get('option b')
-        opt_c=r.get('option_c') or r.get('option c')
-        d=r.get('option_d') or r.get('option d')
-        correct=r.get('correct_option') or r.get('correct option')
-        if q and a and b and opt_c and d and correct:
-            try: marks = float(r.get('mark') or r.get('marks') or 1)
-            except ValueError: marks = 1.0
-            try: time_limit = int(r.get('time') or r.get('time_limit') or 30)
-            except ValueError: time_limit = 30
-            c.execute('INSERT INTO mcqs(teacher_id,question,option_a,option_b,option_c,option_d,correct_option,marks,time_limit) VALUES(?,?,?,?,?,?,?,?,?)', (session['user_id'], str(q).strip(), str(a).strip(), str(b).strip(), str(opt_c).strip(), str(d).strip(), str(correct).strip().lower(), marks, time_limit))
-            count+=1
-    c.commit(); c.close(); return jsonify(ok=True,imported=count)
+    try:
+        for r in rows:
+            q=r.get('question') or r.get('questions')
+            a=r.get('option_a') or r.get('option a')
+            b=r.get('option_b') or r.get('option b')
+            opt_c=r.get('option_c') or r.get('option c')
+            d=r.get('option_d') or r.get('option d')
+            correct=r.get('correct_option') or r.get('correct option')
+            if q and a and b and opt_c and d and correct:
+                try: marks = float(r.get('mark') or r.get('marks') or 1)
+                except ValueError: marks = 1.0
+                try: time_limit = int(r.get('time') or r.get('time_limit') or 30)
+                except ValueError: time_limit = 30
+                c.execute('INSERT INTO mcqs(teacher_id,question,option_a,option_b,option_c,option_d,correct_option,marks,time_limit) VALUES(?,?,?,?,?,?,?,?,?)', (session['user_id'], str(q).strip(), str(a).strip(), str(b).strip(), str(opt_c).strip(), str(d).strip(), str(correct).strip().lower(), marks, time_limit))
+                count+=1
+        c.commit()
+        return jsonify(ok=True,imported=count)
+    finally:
+        c.close()
 @app.get('/api/admin/users')
 @auth('admin')
 def admin_users():
@@ -1827,7 +1892,7 @@ def create_backup():
     ts = datetime.now().strftime('%Y%m%d_%H%M%S')
     backup_path = os.path.join(backup_dir, f'exam_lab_backup_{ts}.db')
     try:
-        shutil.copy2(DB, backup_path)
+        shutil.copy2(get_db_path(), backup_path)
         return jsonify(ok=True, file=f'exam_lab_backup_{ts}.db')
     except Exception as e:
         return jsonify(error=str(e)), 500
@@ -2112,57 +2177,58 @@ def get_history():
 @auth()
 def get_history_details(hid):
     c=conn()
-    if session.get('role') == 'admin':
-        row = c.execute('SELECT h.*, u.name as teacher_name FROM exam_history h JOIN users u ON h.teacher_id=u.id WHERE h.id=?', (hid,)).fetchone()
-    else:
-        row = c.execute('SELECT * FROM exam_history WHERE id=? AND teacher_id=?', (hid, session['user_id'])).fetchone()
-    if not row:
-        c.close()
-        return jsonify(error="History record not found"), 404
-    d = dict(row)
-    d['exam_date'] = to_ist(d.get('exam_date'))
     try:
-        data = json.loads(d.get('result_data') or '[]')
-        for item in data:
-            # If submissions_list or code_submitted is empty, dynamically query from db
-            if (not item.get('submissions_list') or not item.get('code_submitted')) and item.get('user_id'):
-                subs = c.execute('''SELECT q.id as question_id, q.title, s.code, s.language, s.score 
-                                    FROM submissions s 
-                                    JOIN questions q ON s.question_id=q.id 
-                                    WHERE s.user_id=?''', (item['user_id'],)).fetchall()
-                best = {}
-                for s in subs:
-                    title = s['title']
-                    if title not in best or (s['score'] or 0) > (best[title]['score'] or 0):
-                        best[title] = dict(s)
-                drafts = c.execute('''SELECT q.id as question_id, q.title, d.code, d.language, 0 as score 
-                                      FROM drafts d 
-                                      JOIN questions q ON d.question_id=q.id 
-                                      WHERE d.user_id=?''', (item['user_id'],)).fetchall()
-                for dr in drafts:
-                    title = dr['title']
-                    if title not in best and dr['code'] and dr['code'].strip():
-                        best[title] = dict(dr)
-                if best:
-                    submissions_list = []
-                    code_str = ""
-                    for title, sub in best.items():
-                        submissions_list.append({
-                            'question_title': title,
-                            'question_id': sub.get('question_id'),
-                            'language': sub.get('language') or 'python',
-                            'score': sub.get('score', 0),
-                            'code': sub.get('code', '')
-                        })
-                        code_str += f"\n--- Question: {title} ({sub.get('language','python')} | Score: {sub.get('score',0)}) ---\n{sub.get('code','')}\n"
-                    item['code_submitted'] = code_str.strip()
-                    item['submissions_list'] = submissions_list
-        d['result_data'] = data
-    except Exception as e:
-        print("Error parsing history result_data:", e)
-        d['result_data'] = []
-    c.close()
-    return jsonify(d)
+        if session.get('role') == 'admin':
+            row = c.execute('SELECT h.*, u.name as teacher_name FROM exam_history h JOIN users u ON h.teacher_id=u.id WHERE h.id=?', (hid,)).fetchone()
+        else:
+            row = c.execute('SELECT * FROM exam_history WHERE id=? AND teacher_id=?', (hid, session['user_id'])).fetchone()
+        if not row:
+            return jsonify(error="History record not found"), 404
+        d = dict(row)
+        d['exam_date'] = to_ist(d.get('exam_date'))
+        try:
+            data = json.loads(d.get('result_data') or '[]')
+            for item in data:
+                # If submissions_list or code_submitted is empty, dynamically query from db
+                if (not item.get('submissions_list') or not item.get('code_submitted')) and item.get('user_id'):
+                    subs = c.execute('''SELECT q.id as question_id, q.title, s.code, s.language, s.score 
+                                        FROM submissions s 
+                                        JOIN questions q ON s.question_id=q.id 
+                                        WHERE s.user_id=?''', (item['user_id'],)).fetchall()
+                    best = {}
+                    for s in subs:
+                        title = s['title']
+                        if title not in best or (s['score'] or 0) > (best[title]['score'] or 0):
+                            best[title] = dict(s)
+                    drafts = c.execute('''SELECT q.id as question_id, q.title, d.code, d.language, 0 as score 
+                                          FROM drafts d 
+                                          JOIN questions q ON d.question_id=q.id 
+                                          WHERE d.user_id=?''', (item['user_id'],)).fetchall()
+                    for dr in drafts:
+                        title = dr['title']
+                        if title not in best and dr['code'] and dr['code'].strip():
+                            best[title] = dict(dr)
+                    if best:
+                        submissions_list = []
+                        code_str = ""
+                        for title, sub in best.items():
+                            submissions_list.append({
+                                'question_title': title,
+                                'question_id': sub.get('question_id'),
+                                'language': sub.get('language') or 'python',
+                                'score': sub.get('score', 0),
+                                'code': sub.get('code', '')
+                            })
+                            code_str += f"\n--- Question: {title} ({sub.get('language','python')} | Score: {sub.get('score',0)}) ---\n{sub.get('code','')}\n"
+                        item['code_submitted'] = code_str.strip()
+                        item['submissions_list'] = submissions_list
+            d['result_data'] = data
+        except Exception as e:
+            print("Error parsing history result_data:", e)
+            d['result_data'] = []
+        return jsonify(d)
+    finally:
+        c.close()
 
 @app.delete('/api/history/<int:hid>')
 @auth()
