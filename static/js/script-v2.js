@@ -3531,16 +3531,20 @@ window.renderPermanentStudentsList = (role = 'teacher') => {
     const isChecked = state.selectedStudentIds.has(s.id);
     const isIndiv = (s.mode === 'INDIVIDUAL');
     const badge = isIndiv
-      ? `<span style="font-size:0.75rem; background:rgba(13,148,136,0.18); color:var(--accent-1); border:1px solid rgba(13,148,136,0.35); padding:1px 7px; border-radius:999px; font-weight:700;">Indiv (${s.assigned_question_ids.length} Qs)</span>`
-      : `<span style="font-size:0.75rem; background:rgba(255,255,255,0.06); color:var(--text-2); border:1px solid var(--glass-border); padding:1px 7px; border-radius:999px;">Common</span>`;
+      ? `<span class="perm-status-badge indiv">Indiv (${s.assigned_question_ids.length} Qs)</span>`
+      : `<span class="perm-status-badge common">Common</span>`;
+
+    const deptStr = s.department ? `${esc(s.department)}${s.section ? ` - Sec ${esc(s.section)}` : ''}` : '-';
 
     return `
-      <label style="display:flex; align-items:center; gap:10px; padding:7px 10px; border-radius:8px; background:var(--bg-1, rgba(255,255,255,0.02)); border:1px solid var(--glass-border); cursor:pointer; font-size:0.88rem;">
-        <input type="checkbox" class="perm-stud-check-${role}" value="${s.id}" ${isChecked ? 'checked' : ''} onchange="onPermStudentCheckToggle(${s.id}, this.checked, '${role}')" style="width:16px; height:16px; cursor:pointer;">
-        <div style="flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">
-          <b style="color:var(--text-0);">${esc(s.name)}</b>
-          <span style="color:var(--text-2); font-size:0.8rem; margin-left:6px; font-family:monospace;">${esc(s.register_number)}</span>
-          ${s.department ? `<span style="color:var(--text-2); font-size:0.75rem; margin-left:4px;">(${esc(s.department)}${s.section ? `-${esc(s.section)}` : ''})</span>` : ''}
+      <label class="perm-item-label ${isChecked ? 'is-selected' : ''}">
+        <input type="checkbox" class="perm-item-checkbox perm-stud-check-${role}" value="${s.id}" ${isChecked ? 'checked' : ''} onchange="onPermStudentCheckToggle(${s.id}, this.checked, '${role}')">
+        <div class="perm-student-info">
+          <div class="perm-student-main">
+            <span class="perm-student-name">${esc(s.name)}</span>
+            <span class="perm-student-reg">${esc(s.register_number)}</span>
+          </div>
+          <span class="perm-student-dept">${deptStr}</span>
         </div>
         ${badge}
       </label>
@@ -3561,28 +3565,31 @@ window.renderPermanentQuestionsList = (role = 'teacher') => {
   const filtered = questions.filter(item => {
     if (!q) return true;
     const titleMatch = (item.title || '').toLowerCase().includes(q);
+    const langMatch = (item.language || '').toLowerCase().includes(q);
     const idMatch = String(item.id).includes(q);
-    return titleMatch || idMatch;
+    return titleMatch || langMatch || idMatch;
   });
 
   if (!filtered.length) {
-    listEl.innerHTML = '<div style="color:var(--text-2); text-align:center; padding:15px; font-size:0.85rem;">No questions available for this exam type.</div>';
+    listEl.innerHTML = '<div style="color:var(--text-2); text-align:center; padding:30px; font-size:0.88rem;">No questions available for this exam type.</div>';
     return;
   }
 
   listEl.innerHTML = filtered.map((item, idx) => {
     const isChecked = state.selectedQuestionIds.has(item.id);
-    const marksBadge = (item.marks !== undefined) ? `<span style="font-size:0.75rem; background:rgba(255,255,255,0.08); padding:1px 7px; border-radius:6px; color:var(--text-2);">${item.marks} mark(s)</span>` : '';
+    const marksBadge = (item.marks !== undefined) ? `<span class="perm-meta-chip">${item.marks} mark${item.marks !== 1 ? 's' : ''}</span>` : '';
     const extraBadge = item.language
-      ? `<span style="font-size:0.75rem; background:rgba(13,148,136,0.15); padding:1px 7px; border-radius:6px; color:var(--accent-1); font-weight:700;">${esc(item.language)}</span>`
-      : (item.time_limit ? `<span style="font-size:0.75rem; background:rgba(255,255,255,0.08); padding:1px 7px; border-radius:6px; color:var(--text-2);">${item.time_limit}s</span>` : '');
+      ? `<span class="perm-meta-chip lang">${esc(item.language)}</span>`
+      : (item.time_limit ? `<span class="perm-meta-chip">${item.time_limit}s</span>` : '');
 
     return `
-      <label style="display:flex; align-items:center; gap:10px; padding:7px 10px; border-radius:8px; background:var(--bg-1, rgba(255,255,255,0.02)); border:1px solid var(--glass-border); cursor:pointer; font-size:0.88rem;">
-        <input type="checkbox" class="perm-q-check-${role}" value="${item.id}" ${isChecked ? 'checked' : ''} onchange="onPermQuestionCheckToggle(${item.id}, this.checked, '${role}')" style="width:16px; height:16px; cursor:pointer;">
-        <b style="color:var(--text-0); min-width:70px;">Q${idx + 1}:</b>
-        <span style="flex:1; color:var(--text-1); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="${esc(item.title)}">${esc(item.title)}</span>
-        <div style="display:flex; gap:6px; align-items:center;">
+      <label class="perm-item-label ${isChecked ? 'is-selected' : ''}">
+        <input type="checkbox" class="perm-item-checkbox perm-q-check-${role}" value="${item.id}" ${isChecked ? 'checked' : ''} onchange="onPermQuestionCheckToggle(${item.id}, this.checked, '${role}')">
+        <span class="perm-q-tag">Q${idx + 1}</span>
+        <div class="perm-q-content">
+          <div class="perm-q-title" title="${esc(item.title)}">${esc(item.title)}</div>
+        </div>
+        <div class="perm-q-badges">
           ${extraBadge}
           ${marksBadge}
         </div>
@@ -3613,7 +3620,7 @@ window.renderPermanentOverviewTable = (role = 'teacher') => {
   });
 
   if (!filtered.length) {
-    tbody.innerHTML = '<tr><td colspan="9" style="text-align:center; padding:20px; color:var(--text-2);">No students found.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="9" style="text-align:center; padding:30px; color:var(--text-2);">No students found matching your search.</td></tr>';
     return;
   }
 
@@ -3621,29 +3628,32 @@ window.renderPermanentOverviewTable = (role = 'teacher') => {
     const isIndiv = (s.mode === 'INDIVIDUAL');
     const isChecked = state.selectedStudentIds.has(s.id);
     const modeBadge = isIndiv
-      ? `<span style="background:rgba(13,148,136,0.18); color:var(--accent-1); border:1px solid rgba(13,148,136,0.35); padding:3px 10px; border-radius:999px; font-weight:700; font-size:0.8rem;">Individual (${s.assigned_question_ids.length})</span>`
-      : `<span style="background:rgba(255,255,255,0.06); color:var(--text-2); border:1px solid var(--glass-border); padding:3px 10px; border-radius:999px; font-weight:600; font-size:0.8rem;">Common (All ${totalCommon})</span>`;
+      ? `<span class="perm-status-badge indiv">Individual (${s.assigned_question_ids.length})</span>`
+      : `<span class="perm-status-badge common">Common (All ${totalCommon})</span>`;
 
-    const questionsListStr = isIndiv
-      ? `Q${s.assigned_question_ids.map(qid => {
+    const questionsCell = isIndiv
+      ? `<div class="perm-q-chips-wrap">${s.assigned_question_ids.map(qid => {
           const qIdx = questions.findIndex(cq => cq.id === qid);
-          return (qIdx !== -1) ? (qIdx + 1) : `#${qid}`;
-        }).join(', Q')}`
-      : `All ${totalCommon} Questions`;
+          const label = (qIdx !== -1) ? `Q${qIdx + 1}` : `#${qid}`;
+          return `<span class="perm-chip">${label}</span>`;
+        }).join('')}</div>`
+      : `<span style="color:var(--text-2); font-size:0.84rem;">All ${totalCommon} Questions (Common)</span>`;
 
     return `
       <tr class="perm-row-${role}" data-name="${esc((s.name || '').toLowerCase())}" data-reg="${esc((s.register_number || '').toLowerCase())}" data-dept="${esc((s.department || '').toLowerCase())}">
-        <td style="padding:12px 14px;"><input type="checkbox" class="perm-matrix-check-${role}" value="${s.id}" ${isChecked ? 'checked' : ''} onchange="onPermStudentCheckToggle(${s.id}, this.checked, '${role}')"></td>
-        <td style="padding:12px 14px; font-weight:700; color:var(--text-0);">${esc(s.name)}</td>
-        <td style="padding:12px 14px; color:var(--text-1); font-family:monospace;">${esc(s.register_number)}</td>
-        <td style="padding:12px 14px; color:var(--text-2);">${esc(s.department || '-')} ${s.section ? `(${esc(s.section)})` : ''}</td>
-        <td style="padding:12px 14px;"><span style="font-size:0.75rem; background:rgba(99,102,241,0.15); color:#818cf8; padding:2px 8px; border-radius:6px; font-weight:700;">${state.examType.toUpperCase()}</span></td>
-        <td style="padding:12px 14px;">${modeBadge}</td>
-        <td style="padding:12px 14px; color:var(--text-1); font-size:0.88rem; max-width:240px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="${esc(questionsListStr)}">${esc(questionsListStr)}</td>
-        <td style="padding:12px 14px; color:var(--text-2); font-size:0.8rem;">v${s.version || 1}</td>
-        <td style="padding:12px 14px; text-align:right; white-space:nowrap;">
-          <button type="button" class="btn btn-ghost" onclick="permEditStudent(${s.id}, '${role}')" style="padding:4px 10px; font-size:0.8rem; font-weight:700; margin-right:4px;">✏️ Edit</button>
-          ${isIndiv ? `<button type="button" class="btn btn-ghost" onclick="permResetStudent(${s.id}, '${role}')" style="padding:4px 10px; font-size:0.8rem; color:var(--danger); border-color:var(--danger);">↺ Reset</button>` : ''}
+        <td style="text-align:center;"><input type="checkbox" class="perm-item-checkbox perm-matrix-check-${role}" value="${s.id}" ${isChecked ? 'checked' : ''} onchange="onPermStudentCheckToggle(${s.id}, this.checked, '${role}')"></td>
+        <td style="font-weight:700; color:var(--text-0);">${esc(s.name)}</td>
+        <td><span class="perm-student-reg">${esc(s.register_number)}</span></td>
+        <td style="color:var(--text-1);">${esc(s.department || '-')} ${s.section ? `(${esc(s.section)})` : ''}</td>
+        <td><span style="font-size:0.75rem; background:rgba(99,102,241,0.15); color:#818cf8; border:1px solid rgba(99,102,241,0.3); padding:2px 8px; border-radius:6px; font-weight:700;">${state.examType.toUpperCase()}</span></td>
+        <td>${modeBadge}</td>
+        <td>${questionsCell}</td>
+        <td><span style="font-size:0.75rem; color:var(--text-2); background:rgba(255,255,255,0.06); padding:2px 7px; border-radius:6px;">v${s.version || 1}</span></td>
+        <td style="text-align:right;">
+          <div style="display:inline-flex; gap:6px; justify-content:flex-end;">
+            <button type="button" class="perm-action-btn" onclick="permEditStudent(${s.id}, '${role}')" title="Configure student">✏️ Edit</button>
+            ${isIndiv ? `<button type="button" class="perm-action-btn reset" onclick="permResetStudent(${s.id}, '${role}')" title="Reset to Common">↺ Reset</button>` : ''}
+          </div>
         </td>
       </tr>
     `;
@@ -3661,7 +3671,11 @@ window.onPermStudentCheckToggle = (studentId, isChecked, role = 'teacher') => {
   const matrixBox = document.querySelector(`.perm-matrix-check-${role}[value="${studentId}"]`);
   if (matrixBox) matrixBox.checked = isChecked;
   const listCheck = document.querySelector(`.perm-stud-check-${role}[value="${studentId}"]`);
-  if (listCheck) listCheck.checked = isChecked;
+  if (listCheck) {
+    listCheck.checked = isChecked;
+    const lbl = listCheck.closest('.perm-item-label');
+    if (lbl) lbl.classList.toggle('is-selected', isChecked);
+  }
 };
 
 window.onPermQuestionCheckToggle = (questionId, isChecked, role = 'teacher') => {
@@ -3672,6 +3686,12 @@ window.onPermQuestionCheckToggle = (questionId, isChecked, role = 'teacher') => 
     state.selectedQuestionIds.delete(questionId);
   }
   updatePermanentSelectedCounters(role);
+  const qCheck = document.querySelector(`.perm-q-check-${role}[value="${questionId}"]`);
+  if (qCheck) {
+    qCheck.checked = isChecked;
+    const lbl = qCheck.closest('.perm-item-label');
+    if (lbl) lbl.classList.toggle('is-selected', isChecked);
+  }
 };
 
 window.permSelectAllStudents = (select, role = 'teacher') => {
@@ -3682,6 +3702,8 @@ window.permSelectAllStudents = (select, role = 'teacher') => {
     const sid = parseInt(c.value, 10);
     if (select) state.selectedStudentIds.add(sid);
     else state.selectedStudentIds.delete(sid);
+    const lbl = c.closest('.perm-item-label');
+    if (lbl) lbl.classList.toggle('is-selected', Boolean(select));
   });
   const matrixChecks = document.querySelectorAll(`.perm-matrix-check-${role}`);
   matrixChecks.forEach(c => c.checked = Boolean(select));
@@ -3696,6 +3718,8 @@ window.permSelectAllQuestions = (select, role = 'teacher') => {
     const qid = parseInt(c.value, 10);
     if (select) state.selectedQuestionIds.add(qid);
     else state.selectedQuestionIds.delete(qid);
+    const lbl = c.closest('.perm-item-label');
+    if (lbl) lbl.classList.toggle('is-selected', Boolean(select));
   });
   updatePermanentSelectedCounters(role);
 };

@@ -435,133 +435,142 @@
         </section>
 
         <!-- Permanent Student Question Assignment Tab (Teacher) -->
-        <section id="tab-assignments" class="glass panel portal-tab-content" style="display:none;">
-          <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px; margin-bottom:20px;">
-            <div>
-              <div style="display:flex; align-items:center; gap:10px;">
-                <h2 style="margin:0; font-size:1.35rem; font-weight:700;">Permanent Student Question Assignments</h2>
-                <span style="font-size:0.75rem; font-weight:800; background:linear-gradient(135deg, var(--accent-1), var(--accent-2)); color:#fff; padding:3px 10px; border-radius:999px; text-transform:uppercase; letter-spacing:0.05em;">Persistent System</span>
+        <section id="tab-assignments" class="glass panel portal-tab-content perm-assignment-panel" style="display:none;">
+          <div class="perm-header-bar">
+            <div class="perm-title-group">
+              <div class="perm-title-row">
+                <h2>Permanent Student Question Assignments</h2>
+                <span class="perm-badge-pill">Persistent System</span>
               </div>
-              <p style="margin:4px 0 0 0; color:var(--text-2); font-size:0.88rem;">
+              <p class="perm-subtitle">
                 Assign specific questions to individual students permanently. Assignments persist across all future room keys, exam sessions, and server restarts. Unassigned students receive all common questions.
               </p>
             </div>
-            <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
-              <button type="button" class="btn btn-ghost" onclick="loadPermanentAssignmentsUI('teacher')" style="padding:8px 14px;">🔄 Refresh</button>
+            <div class="perm-header-actions">
+              <button type="button" class="btn btn-ghost" onclick="loadPermanentAssignmentsUI('teacher')" style="padding:8px 16px; font-weight:700;">🔄 Refresh</button>
             </div>
           </div>
 
           <!-- Exam Type Sub-Tabs -->
-          <div style="display:flex; gap:8px; border-bottom:1px solid var(--glass-border); padding-bottom:12px; margin-bottom:20px;">
-            <button type="button" id="permTabBtn-coding" class="btn btn-primary" onclick="switchPermanentExamType('coding', 'teacher')" style="padding:8px 18px; font-weight:700;">
+          <div class="perm-subtabs-bar">
+            <button type="button" id="permTabBtn-coding" class="btn btn-primary perm-subtab-btn" onclick="switchPermanentExamType('coding', 'teacher')">
               💻 Coding Assignments
             </button>
-            <button type="button" id="permTabBtn-mcq" class="btn btn-ghost" onclick="switchPermanentExamType('mcq', 'teacher')" style="padding:8px 18px; font-weight:700;">
+            <button type="button" id="permTabBtn-mcq" class="btn btn-ghost perm-subtab-btn" onclick="switchPermanentExamType('mcq', 'teacher')">
               📝 MCQ Assignments
             </button>
           </div>
 
           <!-- Main Assignment Builder Grid (2 Columns) -->
-          <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(360px, 1fr)); gap:20px; margin-bottom:20px;">
+          <div class="perm-builder-grid">
             
             <!-- Left Panel: Step 1 - Select Students -->
-            <div class="glass panel" style="background:var(--bg-1, rgba(255,255,255,0.03)); border:1px solid var(--glass-border); border-radius:14px; padding:18px; display:flex; flex-direction:column; gap:12px;">
-              <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;">
-                <div>
-                  <b style="font-size:0.95rem; color:var(--text-0);">1. Select Student(s)</b>
-                  <span id="permSelectedStudentsCount" style="margin-left:8px; font-size:0.8rem; font-weight:700; color:var(--accent-1); background:rgba(13,148,136,0.15); padding:2px 8px; border-radius:999px;">0 Selected</span>
+            <div class="perm-builder-card">
+              <div class="perm-card-top">
+                <div class="perm-card-title">
+                  <span class="perm-step-num">1</span>
+                  <b>Select Student(s)</b>
+                  <span id="permSelectedStudentsCount" class="perm-counter-pill">0 Selected</span>
                 </div>
-                <div style="display:flex; gap:6px;">
-                  <button type="button" class="btn btn-ghost" onclick="permSelectAllStudents(true, 'teacher')" style="padding:4px 10px; font-size:0.8rem;">Select All</button>
-                  <button type="button" class="btn btn-ghost" onclick="permSelectAllStudents(false, 'teacher')" style="padding:4px 10px; font-size:0.8rem;">Clear</button>
+                <div class="perm-card-btn-group">
+                  <button type="button" class="perm-micro-btn" onclick="permSelectAllStudents(true, 'teacher')">Select All</button>
+                  <button type="button" class="perm-micro-btn" onclick="permSelectAllStudents(false, 'teacher')">Clear</button>
                 </div>
               </div>
 
               <!-- Student Filters -->
-              <div style="display:grid; grid-template-columns: 1fr 1fr; gap:8px;">
-                <input id="permStudentSearch" oninput="filterPermanentStudentsList('teacher')" placeholder="🔍 Search name, reg no..." style="grid-column: span 2; padding:8px 12px; border-radius:8px; border:1px solid var(--glass-border); background:var(--bg-0); color:var(--text-0); font-size:0.85rem;">
-                <select id="permDeptFilter" onchange="filterPermanentStudentsList('teacher')" style="padding:6px 10px; border-radius:8px; border:1px solid var(--glass-border); background:var(--bg-0); color:var(--text-0); font-size:0.82rem;">
-                  <option value="">All Departments</option>
-                </select>
-                <select id="permSectionFilter" onchange="filterPermanentStudentsList('teacher')" style="padding:6px 10px; border-radius:8px; border:1px solid var(--glass-border); background:var(--bg-0); color:var(--text-0); font-size:0.82rem;">
-                  <option value="">All Sections</option>
-                </select>
+              <div class="perm-filters-container">
+                <input id="permStudentSearch" class="perm-search-box" oninput="filterPermanentStudentsList('teacher')" placeholder="🔍 Search name, reg no, department...">
+                <div class="perm-dropdowns-row">
+                  <select id="permDeptFilter" class="perm-select-box" onchange="filterPermanentStudentsList('teacher')">
+                    <option value="">All Departments</option>
+                  </select>
+                  <select id="permSectionFilter" class="perm-select-box" onchange="filterPermanentStudentsList('teacher')">
+                    <option value="">All Sections</option>
+                  </select>
+                </div>
               </div>
 
               <!-- Students Scrollable Checklist -->
-              <div id="permStudentsList" style="max-height:280px; overflow-y:auto; border:1px solid var(--glass-border); border-radius:10px; padding:10px; background:var(--bg-0); display:flex; flex-direction:column; gap:6px;">
-                <div style="color:var(--text-2); font-size:0.88rem; text-align:center; padding:20px;">Loading students...</div>
+              <div id="permStudentsList" class="perm-checklist">
+                <div style="color:var(--text-2); font-size:0.88rem; text-align:center; padding:30px;">Loading students...</div>
               </div>
             </div>
 
             <!-- Right Panel: Step 2 - Select Questions -->
-            <div class="glass panel" style="background:var(--bg-1, rgba(255,255,255,0.03)); border:1px solid var(--glass-border); border-radius:14px; padding:18px; display:flex; flex-direction:column; gap:12px;">
-              <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;">
-                <div>
-                  <b style="font-size:0.95rem; color:var(--text-0);">2. Select Question(s) to Assign</b>
-                  <span id="permSelectedQuestionsCount" style="margin-left:8px; font-size:0.8rem; font-weight:700; color:var(--accent-1); background:rgba(13,148,136,0.15); padding:2px 8px; border-radius:999px;">0 Selected</span>
+            <div class="perm-builder-card">
+              <div class="perm-card-top">
+                <div class="perm-card-title">
+                  <span class="perm-step-num">2</span>
+                  <b>Select Question(s) to Assign</b>
+                  <span id="permSelectedQuestionsCount" class="perm-counter-pill">0 Selected</span>
                 </div>
-                <div style="display:flex; gap:6px;">
-                  <button type="button" class="btn btn-ghost" onclick="permSelectAllQuestions(true, 'teacher')" style="padding:4px 10px; font-size:0.8rem;">Select All</button>
-                  <button type="button" class="btn btn-ghost" onclick="permSelectAllQuestions(false, 'teacher')" style="padding:4px 10px; font-size:0.8rem;">Clear</button>
+                <div class="perm-card-btn-group">
+                  <button type="button" class="perm-micro-btn" onclick="permSelectAllQuestions(true, 'teacher')">Select All</button>
+                  <button type="button" class="perm-micro-btn" onclick="permSelectAllQuestions(false, 'teacher')">Clear</button>
                 </div>
               </div>
 
               <!-- Question Filter -->
-              <input id="permQuestionSearch" oninput="filterPermanentQuestionsList('teacher')" placeholder="🔍 Search questions by title, marks, ID..." style="padding:8px 12px; border-radius:8px; border:1px solid var(--glass-border); background:var(--bg-0); color:var(--text-0); font-size:0.85rem;">
+              <div class="perm-filters-container">
+                <input id="permQuestionSearch" class="perm-search-box" oninput="filterPermanentQuestionsList('teacher')" placeholder="🔍 Search questions by title, marks, language, ID...">
+                <div style="height:38px; display:flex; align-items:center; padding:0 8px; color:var(--text-2); font-size:0.8rem; font-weight:600;">
+                  <span>💡 Tip: Select specific questions below to override Common mode.</span>
+                </div>
+              </div>
 
               <!-- Questions Scrollable Checklist -->
-              <div id="permQuestionsList" style="max-height:280px; overflow-y:auto; border:1px solid var(--glass-border); border-radius:10px; padding:10px; background:var(--bg-0); display:flex; flex-direction:column; gap:6px;">
-                <div style="color:var(--text-2); font-size:0.88rem; text-align:center; padding:20px;">Loading questions...</div>
+              <div id="permQuestionsList" class="perm-checklist">
+                <div style="color:var(--text-2); font-size:0.88rem; text-align:center; padding:30px;">Loading questions...</div>
               </div>
             </div>
 
           </div>
 
           <!-- Operations Toolbar -->
-          <div class="glass panel" style="background:var(--bg-1, rgba(255,255,255,0.03)); border:1px solid var(--glass-border); border-radius:14px; padding:16px 20px; margin-bottom:24px; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:14px;">
-            <div style="display:flex; gap:10px; flex-wrap:wrap;">
-              <button type="button" id="permBulkAssignBtn" class="btn btn-primary" onclick="permApplyBulkAssignment('teacher')" style="padding:10px 22px; font-weight:700;">
+          <div class="perm-toolbar-card">
+            <div class="perm-toolbar-buttons">
+              <button type="button" id="permBulkAssignBtn" class="perm-cta-assign" onclick="permApplyBulkAssignment('teacher')">
                 ⚡ Assign Selected Questions to Selected Student(s)
               </button>
-              <button type="button" id="permDistributeBtn" class="btn btn-ghost" onclick="permDistributeQuestions('teacher')" style="padding:10px 18px; font-weight:700; color:var(--accent-1); border-color:var(--accent-1);" title="Maps 1 question to 1 student in order when counts match">
+              <button type="button" id="permDistributeBtn" class="perm-cta-distribute" onclick="permDistributeQuestions('teacher')" title="Maps 1 question to 1 student in order when counts match">
                 🔀 Distribute 1 Question Per Student
               </button>
-              <button type="button" id="permBulkResetBtn" class="btn btn-ghost" onclick="permApplyBulkReset('teacher')" style="padding:10px 18px; color:var(--danger); border-color:var(--danger); font-weight:600;">
+              <button type="button" id="permBulkResetBtn" class="perm-cta-reset" onclick="permApplyBulkReset('teacher')">
                 ↺ Reset Selected to Common Questions
               </button>
             </div>
-            <div id="permActionStatus" style="font-size:0.85rem; font-weight:600; color:var(--text-2);"></div>
+            <div id="permActionStatus" class="perm-status-msg"></div>
           </div>
 
           <!-- Individual Assignment Matrix Table -->
-          <div style="margin-top:20px;">
-            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; flex-wrap:wrap; gap:10px;">
+          <div class="perm-matrix-card">
+            <div class="perm-matrix-header-row">
               <div>
-                <h3 style="margin:0; font-size:1.15rem; font-weight:700;">Permanent Student Assignment Matrix</h3>
-                <p style="margin:2px 0 0 0; color:var(--text-2); font-size:0.82rem;">Overview of individual configurations across all students. Click 'Edit' on any row to configure that student.</p>
+                <h3>Permanent Student Assignment Matrix</h3>
+                <p>Overview of individual configurations across all students. Click 'Edit' on any row to configure that student.</p>
               </div>
               <div style="display:flex; gap:8px;">
-                <input id="permOverviewSearch" oninput="filterPermanentOverviewTable('teacher')" placeholder="🔍 Filter matrix by student, reg no, dept..." style="padding:8px 14px; border-radius:10px; border:1px solid var(--glass-border); background:var(--bg-1); color:var(--text-0); font-size:0.88rem; width:280px;">
+                <input id="permOverviewSearch" class="perm-search-box" oninput="filterPermanentOverviewTable('teacher')" placeholder="🔍 Filter matrix by student, reg no, dept..." style="width:280px; max-width:100%;">
               </div>
             </div>
-            <div style="border-radius:12px; border:1px solid var(--glass-border); overflow-x:auto;">
-              <table class="data-table" style="width:100%; min-width:850px; text-align:left;">
+            <div class="perm-matrix-table-wrap">
+              <table class="perm-matrix-table">
                 <thead>
                   <tr>
-                    <th style="padding:12px 14px; width:40px;"><input type="checkbox" id="permSelectAllMatrixCheckbox" onchange="permToggleMatrixCheckboxes(this.checked, 'teacher')"></th>
-                    <th style="padding:12px 14px;">Student</th>
-                    <th style="padding:12px 14px;">Reg No</th>
-                    <th style="padding:12px 14px;">Dept / Section</th>
-                    <th style="padding:12px 14px;">Exam Type</th>
-                    <th style="padding:12px 14px;">Assignment Mode</th>
-                    <th style="padding:12px 14px;">Assigned Questions</th>
-                    <th style="padding:12px 14px;">Version</th>
-                    <th style="padding:12px 14px; text-align:right;">Actions</th>
+                    <th style="width:40px; text-align:center;"><input type="checkbox" id="permSelectAllMatrixCheckbox" onchange="permToggleMatrixCheckboxes(this.checked, 'teacher')"></th>
+                    <th>Student</th>
+                    <th>Reg No</th>
+                    <th>Dept / Section</th>
+                    <th>Exam Type</th>
+                    <th>Assignment Mode</th>
+                    <th>Assigned Questions</th>
+                    <th>Version</th>
+                    <th style="text-align:right;">Actions</th>
                   </tr>
                 </thead>
                 <tbody id="permOverviewTableBody">
-                  <tr><td colspan="9" style="text-align:center; padding:20px; color:var(--text-2);">Loading permanent assignment matrix...</td></tr>
+                  <tr><td colspan="9" style="text-align:center; padding:24px; color:var(--text-2);">Loading permanent assignment matrix...</td></tr>
                 </tbody>
               </table>
             </div>
@@ -713,132 +722,141 @@
         </section>
 
         <!-- Permanent Student Question Assignment Tab (Admin) -->
-        <section id="tab-admin-assignments" class="glass panel portal-tab-content" style="display:none;">
-          <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px; margin-bottom:20px;">
-            <div>
-              <div style="display:flex; align-items:center; gap:10px;">
-                <h2 style="margin:0; font-size:1.35rem; font-weight:700;">Permanent Student Question Assignments (Admin)</h2>
-                <span style="font-size:0.75rem; font-weight:800; background:linear-gradient(135deg, var(--accent-1), var(--accent-2)); color:#fff; padding:3px 10px; border-radius:999px; text-transform:uppercase; letter-spacing:0.05em;">Admin Control</span>
+        <section id="tab-admin-assignments" class="glass panel portal-tab-content perm-assignment-panel" style="display:none;">
+          <div class="perm-header-bar">
+            <div class="perm-title-group">
+              <div class="perm-title-row">
+                <h2>Permanent Student Question Assignments (Admin)</h2>
+                <span class="perm-badge-pill" style="background:linear-gradient(135deg, #6366f1, #a855f7);">Admin Control</span>
               </div>
-              <p style="margin:4px 0 0 0; color:var(--text-2); font-size:0.88rem;">Manage persistent question assignments across all teachers and examination types.</p>
+              <p class="perm-subtitle">Manage persistent question assignments across all teachers and examination types.</p>
             </div>
-            <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
-              <select id="permAdminTeacherSelect" onchange="onPermAdminTeacherChange()" style="padding:8px 12px; border-radius:10px; background:var(--bg-1); color:var(--text-0); border:1px solid var(--glass-border); font-weight:600; min-width:240px;"></select>
-              <button type="button" class="btn btn-ghost" onclick="loadPermanentAssignmentsUI('admin')" style="padding:8px 14px;">🔄 Refresh</button>
+            <div class="perm-header-actions">
+              <select id="permAdminTeacherSelect" class="perm-select-box" onchange="onPermAdminTeacherChange()" style="min-width:240px; font-weight:700;"></select>
+              <button type="button" class="btn btn-ghost" onclick="loadPermanentAssignmentsUI('admin')" style="padding:8px 16px; font-weight:700;">🔄 Refresh</button>
             </div>
           </div>
 
           <!-- Exam Type Sub-Tabs -->
-          <div style="display:flex; gap:8px; border-bottom:1px solid var(--glass-border); padding-bottom:12px; margin-bottom:20px;">
-            <button type="button" id="permAdminTabBtn-coding" class="btn btn-primary" onclick="switchPermanentExamType('coding', 'admin')" style="padding:8px 18px; font-weight:700;">
+          <div class="perm-subtabs-bar">
+            <button type="button" id="permAdminTabBtn-coding" class="btn btn-primary perm-subtab-btn" onclick="switchPermanentExamType('coding', 'admin')">
               💻 Coding Assignments
             </button>
-            <button type="button" id="permAdminTabBtn-mcq" class="btn btn-ghost" onclick="switchPermanentExamType('mcq', 'admin')" style="padding:8px 18px; font-weight:700;">
+            <button type="button" id="permAdminTabBtn-mcq" class="btn btn-ghost perm-subtab-btn" onclick="switchPermanentExamType('mcq', 'admin')">
               📝 MCQ Assignments
             </button>
           </div>
 
           <!-- Main Assignment Builder Grid (2 Columns) -->
-          <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(360px, 1fr)); gap:20px; margin-bottom:20px;">
+          <div class="perm-builder-grid">
             
             <!-- Left Panel: Step 1 - Select Students -->
-            <div class="glass panel" style="background:var(--bg-1, rgba(255,255,255,0.03)); border:1px solid var(--glass-border); border-radius:14px; padding:18px; display:flex; flex-direction:column; gap:12px;">
-              <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;">
-                <div>
-                  <b style="font-size:0.95rem; color:var(--text-0);">1. Select Student(s)</b>
-                  <span id="permAdminSelectedStudentsCount" style="margin-left:8px; font-size:0.8rem; font-weight:700; color:var(--accent-1); background:rgba(13,148,136,0.15); padding:2px 8px; border-radius:999px;">0 Selected</span>
+            <div class="perm-builder-card">
+              <div class="perm-card-top">
+                <div class="perm-card-title">
+                  <span class="perm-step-num">1</span>
+                  <b>Select Student(s)</b>
+                  <span id="permAdminSelectedStudentsCount" class="perm-counter-pill">0 Selected</span>
                 </div>
-                <div style="display:flex; gap:6px;">
-                  <button type="button" class="btn btn-ghost" onclick="permSelectAllStudents(true, 'admin')" style="padding:4px 10px; font-size:0.8rem;">Select All</button>
-                  <button type="button" class="btn btn-ghost" onclick="permSelectAllStudents(false, 'admin')" style="padding:4px 10px; font-size:0.8rem;">Clear</button>
+                <div class="perm-card-btn-group">
+                  <button type="button" class="perm-micro-btn" onclick="permSelectAllStudents(true, 'admin')">Select All</button>
+                  <button type="button" class="perm-micro-btn" onclick="permSelectAllStudents(false, 'admin')">Clear</button>
                 </div>
               </div>
 
               <!-- Student Filters -->
-              <div style="display:grid; grid-template-columns: 1fr 1fr; gap:8px;">
-                <input id="permAdminStudentSearch" oninput="filterPermanentStudentsList('admin')" placeholder="🔍 Search name, reg no..." style="grid-column: span 2; padding:8px 12px; border-radius:8px; border:1px solid var(--glass-border); background:var(--bg-0); color:var(--text-0); font-size:0.85rem;">
-                <select id="permAdminDeptFilter" onchange="filterPermanentStudentsList('admin')" style="padding:6px 10px; border-radius:8px; border:1px solid var(--glass-border); background:var(--bg-0); color:var(--text-0); font-size:0.82rem;">
-                  <option value="">All Departments</option>
-                </select>
-                <select id="permAdminSectionFilter" onchange="filterPermanentStudentsList('admin')" style="padding:6px 10px; border-radius:8px; border:1px solid var(--glass-border); background:var(--bg-0); color:var(--text-0); font-size:0.82rem;">
-                  <option value="">All Sections</option>
-                </select>
+              <div class="perm-filters-container">
+                <input id="permAdminStudentSearch" class="perm-search-box" oninput="filterPermanentStudentsList('admin')" placeholder="🔍 Search name, reg no, department...">
+                <div class="perm-dropdowns-row">
+                  <select id="permAdminDeptFilter" class="perm-select-box" onchange="filterPermanentStudentsList('admin')">
+                    <option value="">All Departments</option>
+                  </select>
+                  <select id="permAdminSectionFilter" class="perm-select-box" onchange="filterPermanentStudentsList('admin')">
+                    <option value="">All Sections</option>
+                  </select>
+                </div>
               </div>
 
               <!-- Students Scrollable Checklist -->
-              <div id="permAdminStudentsList" style="max-height:280px; overflow-y:auto; border:1px solid var(--glass-border); border-radius:10px; padding:10px; background:var(--bg-0); display:flex; flex-direction:column; gap:6px;">
-                <div style="color:var(--text-2); font-size:0.88rem; text-align:center; padding:20px;">Loading students...</div>
+              <div id="permAdminStudentsList" class="perm-checklist">
+                <div style="color:var(--text-2); font-size:0.88rem; text-align:center; padding:30px;">Loading students...</div>
               </div>
             </div>
 
             <!-- Right Panel: Step 2 - Select Questions -->
-            <div class="glass panel" style="background:var(--bg-1, rgba(255,255,255,0.03)); border:1px solid var(--glass-border); border-radius:14px; padding:18px; display:flex; flex-direction:column; gap:12px;">
-              <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;">
-                <div>
-                  <b style="font-size:0.95rem; color:var(--text-0);">2. Select Question(s) to Assign</b>
-                  <span id="permAdminSelectedQuestionsCount" style="margin-left:8px; font-size:0.8rem; font-weight:700; color:var(--accent-1); background:rgba(13,148,136,0.15); padding:2px 8px; border-radius:999px;">0 Selected</span>
+            <div class="perm-builder-card">
+              <div class="perm-card-top">
+                <div class="perm-card-title">
+                  <span class="perm-step-num">2</span>
+                  <b>Select Question(s) to Assign</b>
+                  <span id="permAdminSelectedQuestionsCount" class="perm-counter-pill">0 Selected</span>
                 </div>
-                <div style="display:flex; gap:6px;">
-                  <button type="button" class="btn btn-ghost" onclick="permSelectAllQuestions(true, 'admin')" style="padding:4px 10px; font-size:0.8rem;">Select All</button>
-                  <button type="button" class="btn btn-ghost" onclick="permSelectAllQuestions(false, 'admin')" style="padding:4px 10px; font-size:0.8rem;">Clear</button>
+                <div class="perm-card-btn-group">
+                  <button type="button" class="perm-micro-btn" onclick="permSelectAllQuestions(true, 'admin')">Select All</button>
+                  <button type="button" class="perm-micro-btn" onclick="permSelectAllQuestions(false, 'admin')">Clear</button>
                 </div>
               </div>
 
               <!-- Question Filter -->
-              <input id="permAdminQuestionSearch" oninput="filterPermanentQuestionsList('admin')" placeholder="🔍 Search questions by title, marks, ID..." style="padding:8px 12px; border-radius:8px; border:1px solid var(--glass-border); background:var(--bg-0); color:var(--text-0); font-size:0.85rem;">
+              <div class="perm-filters-container">
+                <input id="permAdminQuestionSearch" class="perm-search-box" oninput="filterPermanentQuestionsList('admin')" placeholder="🔍 Search questions by title, marks, language, ID...">
+                <div style="height:38px; display:flex; align-items:center; padding:0 8px; color:var(--text-2); font-size:0.8rem; font-weight:600;">
+                  <span>💡 Tip: Select specific questions below to override Common mode.</span>
+                </div>
+              </div>
 
               <!-- Questions Scrollable Checklist -->
-              <div id="permAdminQuestionsList" style="max-height:280px; overflow-y:auto; border:1px solid var(--glass-border); border-radius:10px; padding:10px; background:var(--bg-0); display:flex; flex-direction:column; gap:6px;">
-                <div style="color:var(--text-2); font-size:0.88rem; text-align:center; padding:20px;">Loading questions...</div>
+              <div id="permAdminQuestionsList" class="perm-checklist">
+                <div style="color:var(--text-2); font-size:0.88rem; text-align:center; padding:30px;">Loading questions...</div>
               </div>
             </div>
 
           </div>
 
           <!-- Operations Toolbar -->
-          <div class="glass panel" style="background:var(--bg-1, rgba(255,255,255,0.03)); border:1px solid var(--glass-border); border-radius:14px; padding:16px 20px; margin-bottom:24px; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:14px;">
-            <div style="display:flex; gap:10px; flex-wrap:wrap;">
-              <button type="button" id="permAdminBulkAssignBtn" class="btn btn-primary" onclick="permApplyBulkAssignment('admin')" style="padding:10px 22px; font-weight:700;">
+          <div class="perm-toolbar-card">
+            <div class="perm-toolbar-buttons">
+              <button type="button" id="permAdminBulkAssignBtn" class="perm-cta-assign" onclick="permApplyBulkAssignment('admin')">
                 ⚡ Assign Selected Questions to Selected Student(s)
               </button>
-              <button type="button" id="permAdminDistributeBtn" class="btn btn-ghost" onclick="permDistributeQuestions('admin')" style="padding:10px 18px; font-weight:700; color:var(--accent-1); border-color:var(--accent-1);" title="Maps 1 question to 1 student in order when counts match">
+              <button type="button" id="permAdminDistributeBtn" class="perm-cta-distribute" onclick="permDistributeQuestions('admin')" title="Maps 1 question to 1 student in order when counts match">
                 🔀 Distribute 1 Question Per Student
               </button>
-              <button type="button" id="permAdminBulkResetBtn" class="btn btn-ghost" onclick="permApplyBulkReset('admin')" style="padding:10px 18px; color:var(--danger); border-color:var(--danger); font-weight:600;">
+              <button type="button" id="permAdminBulkResetBtn" class="perm-cta-reset" onclick="permApplyBulkReset('admin')">
                 ↺ Reset Selected to Common Questions
               </button>
             </div>
-            <div id="permAdminActionStatus" style="font-size:0.85rem; font-weight:600; color:var(--text-2);"></div>
+            <div id="permAdminActionStatus" class="perm-status-msg"></div>
           </div>
 
           <!-- Individual Assignment Matrix Table -->
-          <div style="margin-top:20px;">
-            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; flex-wrap:wrap; gap:10px;">
+          <div class="perm-matrix-card">
+            <div class="perm-matrix-header-row">
               <div>
-                <h3 style="margin:0; font-size:1.15rem; font-weight:700;">Permanent Student Assignment Matrix</h3>
-                <p style="margin:2px 0 0 0; color:var(--text-2); font-size:0.82rem;">Overview of individual configurations across all students. Click 'Edit' on any row to configure that student.</p>
+                <h3>Permanent Student Assignment Matrix</h3>
+                <p>Overview of individual configurations across all students. Click 'Edit' on any row to configure that student.</p>
               </div>
               <div style="display:flex; gap:8px;">
-                <input id="permAdminOverviewSearch" oninput="filterPermanentOverviewTable('admin')" placeholder="🔍 Filter matrix by student, reg no, dept..." style="padding:8px 14px; border-radius:10px; border:1px solid var(--glass-border); background:var(--bg-1); color:var(--text-0); font-size:0.88rem; width:280px;">
+                <input id="permAdminOverviewSearch" class="perm-search-box" oninput="filterPermanentOverviewTable('admin')" placeholder="🔍 Filter matrix by student, reg no, dept..." style="width:280px; max-width:100%;">
               </div>
             </div>
-            <div style="border-radius:12px; border:1px solid var(--glass-border); overflow-x:auto;">
-              <table class="data-table" style="width:100%; min-width:850px; text-align:left;">
+            <div class="perm-matrix-table-wrap">
+              <table class="perm-matrix-table">
                 <thead>
                   <tr>
-                    <th style="padding:12px 14px; width:40px;"><input type="checkbox" id="permAdminSelectAllMatrixCheckbox" onchange="permToggleMatrixCheckboxes(this.checked, 'admin')"></th>
-                    <th style="padding:12px 14px;">Student</th>
-                    <th style="padding:12px 14px;">Reg No</th>
-                    <th style="padding:12px 14px;">Dept / Section</th>
-                    <th style="padding:12px 14px;">Exam Type</th>
-                    <th style="padding:12px 14px;">Assignment Mode</th>
-                    <th style="padding:12px 14px;">Assigned Questions</th>
-                    <th style="padding:12px 14px;">Version</th>
-                    <th style="padding:12px 14px; text-align:right;">Actions</th>
+                    <th style="width:40px; text-align:center;"><input type="checkbox" id="permAdminSelectAllMatrixCheckbox" onchange="permToggleMatrixCheckboxes(this.checked, 'admin')"></th>
+                    <th>Student</th>
+                    <th>Reg No</th>
+                    <th>Dept / Section</th>
+                    <th>Exam Type</th>
+                    <th>Assignment Mode</th>
+                    <th>Assigned Questions</th>
+                    <th>Version</th>
+                    <th style="text-align:right;">Actions</th>
                   </tr>
                 </thead>
                 <tbody id="permAdminOverviewTableBody">
-                  <tr><td colspan="9" style="text-align:center; padding:20px; color:var(--text-2);">Loading permanent assignment matrix...</td></tr>
+                  <tr><td colspan="9" style="text-align:center; padding:24px; color:var(--text-2);">Loading permanent assignment matrix...</td></tr>
                 </tbody>
               </table>
             </div>
@@ -963,7 +981,8 @@
 
   <!-- Global Sticky Developer Watermark Badge -->
   <div class="developer-watermark" id="developerWatermark">
-    <small style="text-align: right;">Developed By : 2nd year - CSE - A <br><h3>S.DEEPAKUMAR</h3></small>
+    <small>Developed By : 2nd year - CSE - A</small>
+    <h3>S.DEEPAKUMAR</h3>
   </div>
 
 </body>

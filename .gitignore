@@ -32,3 +32,12 @@ nginx/logs/
 *.swp
 *.swo
 
+# Test artifacts & debug chrome profiles
+temp_chrome_*/
+screenshots/
+capture_*.py
+test_capture_*.py
+test_cdp_debug.py
+test_join_debug.py
+test_teacher_verification.py
+
