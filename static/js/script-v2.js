@@ -3067,6 +3067,9 @@ const assignmentState = {
 };
 
 window.loadAssignmentsUI = async (role = 'teacher') => {
+  if (typeof window.loadPermanentAssignmentsUI === 'function') {
+    await window.loadPermanentAssignmentsUI(role);
+  }
   const isAdm = (role === 'admin');
   const examSel = document.getElementById(isAdm ? 'adminAssignmentExamSelect' : 'assignmentExamSelect');
   if (!examSel) return;
@@ -3390,3 +3393,512 @@ function renderAssignmentEmptyState(role, msg) {
   if (qListEl) qListEl.innerHTML = `<div style="color:var(--text-2); text-align:center; padding:20px;">${esc(msg)}</div>`;
   if (tbody) tbody.innerHTML = `<tr><td colspan="6" style="text-align:center; padding:20px; color:var(--text-2);">${esc(msg)}</td></tr>`;
 }
+
+// ==================== PERMANENT STUDENT QUESTION ASSIGNMENT CONTROLLER ====================
+
+const permState = {
+  teacher: {
+    examType: 'coding',
+    teacherId: null,
+    data: null,
+    selectedStudentIds: new Set(),
+    selectedQuestionIds: new Set()
+  },
+  admin: {
+    examType: 'coding',
+    teacherId: null,
+    data: null,
+    selectedStudentIds: new Set(),
+    selectedQuestionIds: new Set()
+  }
+};
+
+window.loadPermanentAssignmentsUI = async (role = 'teacher') => {
+  const isAdm = (role === 'admin');
+  const state = permState[role];
+  const tSel = isAdm ? document.getElementById('permAdminTeacherSelect') : null;
+  const teacherId = isAdm ? (tSel ? tSel.value : null) : null;
+
+  const statusEl = document.getElementById(isAdm ? 'permAdminActionStatus' : 'permActionStatus');
+  if (statusEl) statusEl.textContent = 'Loading assignments...';
+
+  try {
+    const url = `/api/permanent-assignments?exam_type=${encodeURIComponent(state.examType)}${teacherId ? `&teacher_id=${encodeURIComponent(teacherId)}` : ''}`;
+    const res = await api(url);
+    if (!res || !res.ok) throw new Error(res.error || 'Failed to load permanent assignments');
+
+    state.data = res;
+    state.teacherId = res.teacher_id;
+
+    // Populate admin teacher selector if admin
+    if (isAdm && tSel && res.teachers && res.teachers.length) {
+      const curVal = tSel.value;
+      tSel.innerHTML = res.teachers.map(t => `<option value="${t.id}" ${t.id === res.teacher_id ? 'selected' : ''}>Teacher: ${esc(t.name)}</option>`).join('');
+      if (!curVal && res.teacher_id) tSel.value = String(res.teacher_id);
+    }
+
+    // Populate department & section filters
+    populatePermanentFilters(role);
+
+    // Render lists & matrix
+    renderPermanentStudentsList(role);
+    renderPermanentQuestionsList(role);
+    renderPermanentOverviewTable(role);
+
+    updatePermanentSelectedCounters(role);
+
+    if (statusEl) statusEl.textContent = `Ready. Showing ${state.examType.toUpperCase()} assignments for ${res.teacher_name || 'Teacher'}.`;
+  } catch (err) {
+    if (statusEl) statusEl.innerHTML = `<span style="color:#ef4444;">Error: ${esc(err.message)}</span>`;
+  }
+};
+
+window.switchPermanentExamType = async (examType, role = 'teacher') => {
+  const isAdm = (role === 'admin');
+  const state = permState[role];
+  state.examType = examType;
+  state.selectedStudentIds.clear();
+  state.selectedQuestionIds.clear();
+
+  const codeBtn = document.getElementById(isAdm ? 'permAdminTabBtn-coding' : 'permTabBtn-coding');
+  const mcqBtn = document.getElementById(isAdm ? 'permAdminTabBtn-mcq' : 'permTabBtn-mcq');
+
+  if (codeBtn && mcqBtn) {
+    if (examType === 'coding') {
+      codeBtn.className = 'btn btn-primary';
+      mcqBtn.className = 'btn btn-ghost';
+    } else {
+      codeBtn.className = 'btn btn-ghost';
+      mcqBtn.className = 'btn btn-primary';
+    }
+  }
+
+  await loadPermanentAssignmentsUI(role);
+};
+
+window.onPermAdminTeacherChange = async () => {
+  permState.admin.selectedStudentIds.clear();
+  permState.admin.selectedQuestionIds.clear();
+  await loadPermanentAssignmentsUI('admin');
+};
+
+function populatePermanentFilters(role = 'teacher') {
+  const isAdm = (role === 'admin');
+  const data = permState[role].data;
+  if (!data) return;
+
+  const deptSel = document.getElementById(isAdm ? 'permAdminDeptFilter' : 'permDeptFilter');
+  const secSel = document.getElementById(isAdm ? 'permAdminSectionFilter' : 'permSectionFilter');
+
+  if (deptSel && data.departments) {
+    const cur = deptSel.value;
+    deptSel.innerHTML = '<option value="">All Departments</option>' + data.departments.map(d => `<option value="${esc(d)}" ${cur === d ? 'selected' : ''}>${esc(d)}</option>`).join('');
+  }
+  if (secSel && data.sections) {
+    const cur = secSel.value;
+    secSel.innerHTML = '<option value="">All Sections</option>' + data.sections.map(s => `<option value="${esc(s)}" ${cur === s ? 'selected' : ''}>Sec ${esc(s)}</option>`).join('');
+  }
+}
+
+window.renderPermanentStudentsList = (role = 'teacher') => {
+  const isAdm = (role === 'admin');
+  const state = permState[role];
+  const listEl = document.getElementById(isAdm ? 'permAdminStudentsList' : 'permStudentsList');
+  if (!listEl || !state.data) return;
+
+  const searchInput = document.getElementById(isAdm ? 'permAdminStudentSearch' : 'permStudentSearch');
+  const deptFilter = document.getElementById(isAdm ? 'permAdminDeptFilter' : 'permDeptFilter');
+  const secFilter = document.getElementById(isAdm ? 'permAdminSectionFilter' : 'permSectionFilter');
+
+  const q = (searchInput ? searchInput.value : '').toLowerCase().trim();
+  const dVal = (deptFilter ? deptFilter.value : '').toLowerCase().trim();
+  const sVal = (secFilter ? secFilter.value : '').toLowerCase().trim();
+
+  const students = state.data.students || [];
+  const filtered = students.filter(s => {
+    const nameMatch = !q || (s.name || '').toLowerCase().includes(q) || (s.register_number || '').toLowerCase().includes(q) || (s.username || '').toLowerCase().includes(q);
+    const deptMatch = !dVal || (s.department || '').toLowerCase() === dVal;
+    const secMatch = !sVal || (s.section || '').toLowerCase() === sVal;
+    return nameMatch && deptMatch && secMatch;
+  });
+
+  if (!filtered.length) {
+    listEl.innerHTML = '<div style="color:var(--text-2); text-align:center; padding:15px; font-size:0.85rem;">No students match filters.</div>';
+    return;
+  }
+
+  listEl.innerHTML = filtered.map(s => {
+    const isChecked = state.selectedStudentIds.has(s.id);
+    const isIndiv = (s.mode === 'INDIVIDUAL');
+    const badge = isIndiv
+      ? `<span style="font-size:0.75rem; background:rgba(13,148,136,0.18); color:var(--accent-1); border:1px solid rgba(13,148,136,0.35); padding:1px 7px; border-radius:999px; font-weight:700;">Indiv (${s.assigned_question_ids.length} Qs)</span>`
+      : `<span style="font-size:0.75rem; background:rgba(255,255,255,0.06); color:var(--text-2); border:1px solid var(--glass-border); padding:1px 7px; border-radius:999px;">Common</span>`;
+
+    return `
+      <label style="display:flex; align-items:center; gap:10px; padding:7px 10px; border-radius:8px; background:var(--bg-1, rgba(255,255,255,0.02)); border:1px solid var(--glass-border); cursor:pointer; font-size:0.88rem;">
+        <input type="checkbox" class="perm-stud-check-${role}" value="${s.id}" ${isChecked ? 'checked' : ''} onchange="onPermStudentCheckToggle(${s.id}, this.checked, '${role}')" style="width:16px; height:16px; cursor:pointer;">
+        <div style="flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">
+          <b style="color:var(--text-0);">${esc(s.name)}</b>
+          <span style="color:var(--text-2); font-size:0.8rem; margin-left:6px; font-family:monospace;">${esc(s.register_number)}</span>
+          ${s.department ? `<span style="color:var(--text-2); font-size:0.75rem; margin-left:4px;">(${esc(s.department)}${s.section ? `-${esc(s.section)}` : ''})</span>` : ''}
+        </div>
+        ${badge}
+      </label>
+    `;
+  }).join('');
+};
+
+window.renderPermanentQuestionsList = (role = 'teacher') => {
+  const isAdm = (role === 'admin');
+  const state = permState[role];
+  const listEl = document.getElementById(isAdm ? 'permAdminQuestionsList' : 'permQuestionsList');
+  if (!listEl || !state.data) return;
+
+  const searchInput = document.getElementById(isAdm ? 'permAdminQuestionSearch' : 'permQuestionSearch');
+  const q = (searchInput ? searchInput.value : '').toLowerCase().trim();
+
+  const questions = state.data.questions || [];
+  const filtered = questions.filter(item => {
+    if (!q) return true;
+    const titleMatch = (item.title || '').toLowerCase().includes(q);
+    const idMatch = String(item.id).includes(q);
+    return titleMatch || idMatch;
+  });
+
+  if (!filtered.length) {
+    listEl.innerHTML = '<div style="color:var(--text-2); text-align:center; padding:15px; font-size:0.85rem;">No questions available for this exam type.</div>';
+    return;
+  }
+
+  listEl.innerHTML = filtered.map((item, idx) => {
+    const isChecked = state.selectedQuestionIds.has(item.id);
+    const marksBadge = (item.marks !== undefined) ? `<span style="font-size:0.75rem; background:rgba(255,255,255,0.08); padding:1px 7px; border-radius:6px; color:var(--text-2);">${item.marks} mark(s)</span>` : '';
+    const extraBadge = item.language
+      ? `<span style="font-size:0.75rem; background:rgba(13,148,136,0.15); padding:1px 7px; border-radius:6px; color:var(--accent-1); font-weight:700;">${esc(item.language)}</span>`
+      : (item.time_limit ? `<span style="font-size:0.75rem; background:rgba(255,255,255,0.08); padding:1px 7px; border-radius:6px; color:var(--text-2);">${item.time_limit}s</span>` : '');
+
+    return `
+      <label style="display:flex; align-items:center; gap:10px; padding:7px 10px; border-radius:8px; background:var(--bg-1, rgba(255,255,255,0.02)); border:1px solid var(--glass-border); cursor:pointer; font-size:0.88rem;">
+        <input type="checkbox" class="perm-q-check-${role}" value="${item.id}" ${isChecked ? 'checked' : ''} onchange="onPermQuestionCheckToggle(${item.id}, this.checked, '${role}')" style="width:16px; height:16px; cursor:pointer;">
+        <b style="color:var(--text-0); min-width:70px;">Q${idx + 1}:</b>
+        <span style="flex:1; color:var(--text-1); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="${esc(item.title)}">${esc(item.title)}</span>
+        <div style="display:flex; gap:6px; align-items:center;">
+          ${extraBadge}
+          ${marksBadge}
+        </div>
+      </label>
+    `;
+  }).join('');
+};
+
+window.renderPermanentOverviewTable = (role = 'teacher') => {
+  const isAdm = (role === 'admin');
+  const state = permState[role];
+  const tbody = document.getElementById(isAdm ? 'permAdminOverviewTableBody' : 'permOverviewTableBody');
+  if (!tbody || !state.data) return;
+
+  const searchInput = document.getElementById(isAdm ? 'permAdminOverviewSearch' : 'permOverviewSearch');
+  const q = (searchInput ? searchInput.value : '').toLowerCase().trim();
+
+  const students = state.data.students || [];
+  const questions = state.data.questions || [];
+  const totalCommon = questions.length;
+
+  const filtered = students.filter(s => {
+    if (!q) return true;
+    return (s.name || '').toLowerCase().includes(q) ||
+           (s.register_number || '').toLowerCase().includes(q) ||
+           (s.department || '').toLowerCase().includes(q) ||
+           (s.section || '').toLowerCase().includes(q);
+  });
+
+  if (!filtered.length) {
+    tbody.innerHTML = '<tr><td colspan="9" style="text-align:center; padding:20px; color:var(--text-2);">No students found.</td></tr>';
+    return;
+  }
+
+  tbody.innerHTML = filtered.map(s => {
+    const isIndiv = (s.mode === 'INDIVIDUAL');
+    const isChecked = state.selectedStudentIds.has(s.id);
+    const modeBadge = isIndiv
+      ? `<span style="background:rgba(13,148,136,0.18); color:var(--accent-1); border:1px solid rgba(13,148,136,0.35); padding:3px 10px; border-radius:999px; font-weight:700; font-size:0.8rem;">Individual (${s.assigned_question_ids.length})</span>`
+      : `<span style="background:rgba(255,255,255,0.06); color:var(--text-2); border:1px solid var(--glass-border); padding:3px 10px; border-radius:999px; font-weight:600; font-size:0.8rem;">Common (All ${totalCommon})</span>`;
+
+    const questionsListStr = isIndiv
+      ? `Q${s.assigned_question_ids.map(qid => {
+          const qIdx = questions.findIndex(cq => cq.id === qid);
+          return (qIdx !== -1) ? (qIdx + 1) : `#${qid}`;
+        }).join(', Q')}`
+      : `All ${totalCommon} Questions`;
+
+    return `
+      <tr class="perm-row-${role}" data-name="${esc((s.name || '').toLowerCase())}" data-reg="${esc((s.register_number || '').toLowerCase())}" data-dept="${esc((s.department || '').toLowerCase())}">
+        <td style="padding:12px 14px;"><input type="checkbox" class="perm-matrix-check-${role}" value="${s.id}" ${isChecked ? 'checked' : ''} onchange="onPermStudentCheckToggle(${s.id}, this.checked, '${role}')"></td>
+        <td style="padding:12px 14px; font-weight:700; color:var(--text-0);">${esc(s.name)}</td>
+        <td style="padding:12px 14px; color:var(--text-1); font-family:monospace;">${esc(s.register_number)}</td>
+        <td style="padding:12px 14px; color:var(--text-2);">${esc(s.department || '-')} ${s.section ? `(${esc(s.section)})` : ''}</td>
+        <td style="padding:12px 14px;"><span style="font-size:0.75rem; background:rgba(99,102,241,0.15); color:#818cf8; padding:2px 8px; border-radius:6px; font-weight:700;">${state.examType.toUpperCase()}</span></td>
+        <td style="padding:12px 14px;">${modeBadge}</td>
+        <td style="padding:12px 14px; color:var(--text-1); font-size:0.88rem; max-width:240px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="${esc(questionsListStr)}">${esc(questionsListStr)}</td>
+        <td style="padding:12px 14px; color:var(--text-2); font-size:0.8rem;">v${s.version || 1}</td>
+        <td style="padding:12px 14px; text-align:right; white-space:nowrap;">
+          <button type="button" class="btn btn-ghost" onclick="permEditStudent(${s.id}, '${role}')" style="padding:4px 10px; font-size:0.8rem; font-weight:700; margin-right:4px;">✏️ Edit</button>
+          ${isIndiv ? `<button type="button" class="btn btn-ghost" onclick="permResetStudent(${s.id}, '${role}')" style="padding:4px 10px; font-size:0.8rem; color:var(--danger); border-color:var(--danger);">↺ Reset</button>` : ''}
+        </td>
+      </tr>
+    `;
+  }).join('');
+};
+
+window.onPermStudentCheckToggle = (studentId, isChecked, role = 'teacher') => {
+  const state = permState[role];
+  if (isChecked) {
+    state.selectedStudentIds.add(studentId);
+  } else {
+    state.selectedStudentIds.delete(studentId);
+  }
+  updatePermanentSelectedCounters(role);
+  const matrixBox = document.querySelector(`.perm-matrix-check-${role}[value="${studentId}"]`);
+  if (matrixBox) matrixBox.checked = isChecked;
+  const listCheck = document.querySelector(`.perm-stud-check-${role}[value="${studentId}"]`);
+  if (listCheck) listCheck.checked = isChecked;
+};
+
+window.onPermQuestionCheckToggle = (questionId, isChecked, role = 'teacher') => {
+  const state = permState[role];
+  if (isChecked) {
+    state.selectedQuestionIds.add(questionId);
+  } else {
+    state.selectedQuestionIds.delete(questionId);
+  }
+  updatePermanentSelectedCounters(role);
+};
+
+window.permSelectAllStudents = (select, role = 'teacher') => {
+  const state = permState[role];
+  const checks = document.querySelectorAll(`.perm-stud-check-${role}`);
+  checks.forEach(c => {
+    c.checked = Boolean(select);
+    const sid = parseInt(c.value, 10);
+    if (select) state.selectedStudentIds.add(sid);
+    else state.selectedStudentIds.delete(sid);
+  });
+  const matrixChecks = document.querySelectorAll(`.perm-matrix-check-${role}`);
+  matrixChecks.forEach(c => c.checked = Boolean(select));
+  updatePermanentSelectedCounters(role);
+};
+
+window.permSelectAllQuestions = (select, role = 'teacher') => {
+  const state = permState[role];
+  const checks = document.querySelectorAll(`.perm-q-check-${role}`);
+  checks.forEach(c => {
+    c.checked = Boolean(select);
+    const qid = parseInt(c.value, 10);
+    if (select) state.selectedQuestionIds.add(qid);
+    else state.selectedQuestionIds.delete(qid);
+  });
+  updatePermanentSelectedCounters(role);
+};
+
+window.permToggleMatrixCheckboxes = (select, role = 'teacher') => {
+  permSelectAllStudents(select, role);
+};
+
+function updatePermanentSelectedCounters(role = 'teacher') {
+  const isAdm = (role === 'admin');
+  const state = permState[role];
+  const studCountEl = document.getElementById(isAdm ? 'permAdminSelectedStudentsCount' : 'permSelectedStudentsCount');
+  const qCountEl = document.getElementById(isAdm ? 'permAdminSelectedQuestionsCount' : 'permSelectedQuestionsCount');
+
+  if (studCountEl) studCountEl.textContent = `${state.selectedStudentIds.size} Selected`;
+  if (qCountEl) qCountEl.textContent = `${state.selectedQuestionIds.size} Selected`;
+}
+
+window.filterPermanentStudentsList = (role = 'teacher') => {
+  renderPermanentStudentsList(role);
+};
+
+window.filterPermanentQuestionsList = (role = 'teacher') => {
+  renderPermanentQuestionsList(role);
+};
+
+window.filterPermanentOverviewTable = (role = 'teacher') => {
+  renderPermanentOverviewTable(role);
+};
+
+window.permEditStudent = (studentId, role = 'teacher') => {
+  const isAdm = (role === 'admin');
+  const state = permState[role];
+  if (!state.data) return;
+
+  const student = (state.data.students || []).find(s => s.id === studentId);
+  if (!student) return;
+
+  state.selectedStudentIds.clear();
+  state.selectedStudentIds.add(studentId);
+
+  state.selectedQuestionIds.clear();
+  if (student.mode === 'INDIVIDUAL' && student.assigned_question_ids) {
+    student.assigned_question_ids.forEach(qid => state.selectedQuestionIds.add(qid));
+  }
+
+  renderPermanentStudentsList(role);
+  renderPermanentQuestionsList(role);
+  renderPermanentOverviewTable(role);
+  updatePermanentSelectedCounters(role);
+
+  const builderCard = document.getElementById(isAdm ? 'permAdminStudentsList' : 'permStudentsList');
+  if (builderCard) builderCard.scrollIntoView({ behavior: 'smooth', block: 'center' });
+};
+
+window.permApplyBulkAssignment = async (role = 'teacher') => {
+  const isAdm = (role === 'admin');
+  const state = permState[role];
+  const studentIds = Array.from(state.selectedStudentIds);
+  const questionIds = Array.from(state.selectedQuestionIds);
+
+  if (!studentIds.length) {
+    alert("Please select at least 1 student from Step 1.");
+    return;
+  }
+  if (!questionIds.length) {
+    alert("Please select at least 1 question to assign from Step 2.\nTo restore Common mode, use 'Reset Selected to Common Questions'.");
+    return;
+  }
+
+  const confirmMsg = `PERMANENT ASSIGNMENT:\n\nAssign ${questionIds.length} question(s) permanently to ${studentIds.length} selected student(s)?\n\nThese assignments will persist across all future room keys and examinations.`;
+  if (!confirm(confirmMsg)) return;
+
+  const statusEl = document.getElementById(isAdm ? 'permAdminActionStatus' : 'permActionStatus');
+  if (statusEl) statusEl.textContent = 'Saving permanent assignments...';
+
+  try {
+    const payload = {
+      exam_type: state.examType,
+      teacher_id: state.teacherId,
+      student_ids: studentIds,
+      question_ids: questionIds
+    };
+    const res = await api('/api/permanent-assignments/bulk', {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    });
+    alert(res.message || "Permanent assignments saved successfully!");
+    state.selectedStudentIds.clear();
+    state.selectedQuestionIds.clear();
+    await loadPermanentAssignmentsUI(role);
+  } catch (err) {
+    alert(err.message || "Failed to save permanent assignments.");
+    if (statusEl) statusEl.innerHTML = `<span style="color:#ef4444;">Error: ${esc(err.message)}</span>`;
+  }
+};
+
+window.permDistributeQuestions = async (role = 'teacher') => {
+  const isAdm = (role === 'admin');
+  const state = permState[role];
+  const studentIds = Array.from(state.selectedStudentIds);
+  const questionIds = Array.from(state.selectedQuestionIds);
+
+  if (!studentIds.length || !questionIds.length) {
+    alert("Please select students and questions to distribute.");
+    return;
+  }
+  if (studentIds.length !== questionIds.length) {
+    alert(`Cannot distribute 1-to-1:\nYou selected ${studentIds.length} student(s) and ${questionIds.length} question(s).\n\nBoth counts must match exactly.`);
+    return;
+  }
+
+  const students = state.data.students || [];
+  const questions = state.data.questions || [];
+
+  let preview = "1-TO-1 DISTRIBUTION PREVIEW:\n\n";
+  for (let i = 0; i < studentIds.length; i++) {
+    const s = students.find(x => x.id === studentIds[i]);
+    const q = questions.find(x => x.id === questionIds[i]);
+    preview += `• ${s ? s.name : `Student #${studentIds[i]}`} → ${q ? q.title : `Question #${questionIds[i]}`}\n`;
+  }
+  preview += "\nApply this permanent 1-to-1 distribution?";
+  if (!confirm(preview)) return;
+
+  const statusEl = document.getElementById(isAdm ? 'permAdminActionStatus' : 'permActionStatus');
+  if (statusEl) statusEl.textContent = 'Distributing questions...';
+
+  try {
+    const payload = {
+      exam_type: state.examType,
+      teacher_id: state.teacherId,
+      student_ids: studentIds,
+      question_ids: questionIds
+    };
+    const res = await api('/api/permanent-assignments/distribute', {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    });
+    alert(res.message || "Questions distributed successfully!");
+    state.selectedStudentIds.clear();
+    state.selectedQuestionIds.clear();
+    await loadPermanentAssignmentsUI(role);
+  } catch (err) {
+    alert(err.message || "Failed to distribute questions.");
+    if (statusEl) statusEl.innerHTML = `<span style="color:#ef4444;">Error: ${esc(err.message)}</span>`;
+  }
+};
+
+window.permApplyBulkReset = async (role = 'teacher') => {
+  const isAdm = (role === 'admin');
+  const state = permState[role];
+  const studentIds = Array.from(state.selectedStudentIds);
+
+  if (!studentIds.length) {
+    alert("Please select at least 1 student to reset.");
+    return;
+  }
+
+  const confirmMsg = `RESET TO COMMON MODE:\n\nReset ${studentIds.length} selected student(s) to Common Questions mode?\n\nThey will receive all common questions in future ${state.examType.toUpperCase()} exams.`;
+  if (!confirm(confirmMsg)) return;
+
+  const statusEl = document.getElementById(isAdm ? 'permAdminActionStatus' : 'permActionStatus');
+  if (statusEl) statusEl.textContent = 'Resetting to common mode...';
+
+  try {
+    const payload = {
+      exam_type: state.examType,
+      teacher_id: state.teacherId,
+      student_ids: studentIds
+    };
+    const res = await api('/api/permanent-assignments/bulk-reset', {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    });
+    alert(res.message || "Students reset to Common Questions mode!");
+    state.selectedStudentIds.clear();
+    await loadPermanentAssignmentsUI(role);
+  } catch (err) {
+    alert(err.message || "Failed to reset assignments.");
+    if (statusEl) statusEl.innerHTML = `<span style="color:#ef4444;">Error: ${esc(err.message)}</span>`;
+  }
+};
+
+window.permResetStudent = async (studentId, role = 'teacher') => {
+  const state = permState[role];
+  const student = (state.data.students || []).find(s => s.id === studentId);
+  const name = student ? student.name : "the selected student";
+
+  if (!confirm(`Reset ${name} to Common Questions mode?`)) return;
+
+  try {
+    const payload = {
+      exam_type: state.examType,
+      teacher_id: state.teacherId,
+      student_ids: [studentId]
+    };
+    const res = await api('/api/permanent-assignments/bulk-reset', {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    });
+    alert(res.message || "Student reset to Common Questions mode!");
+    await loadPermanentAssignmentsUI(role);
+  } catch (err) {
+    alert(err.message || "Failed to reset assignment.");
+  }
+};

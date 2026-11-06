@@ -19,7 +19,7 @@ for _p in _extra_paths:
         os.environ["PATH"] += os.pathsep + _p
 
 from functools import wraps
-from flask import Flask, jsonify, render_template, request, session
+from flask import Flask, jsonify, render_template, request, session, has_request_context
 from flask_sock import Sock
 from werkzeug.security import check_password_hash, generate_password_hash as _werkzeug_gen_hash
 def generate_password_hash(password, method='pbkdf2:sha256'):
@@ -93,6 +93,56 @@ def conn():
     except Exception:
         pass
     return c
+
+def migrate_to_permanent_profiles(c):
+    """
+    Non-destructive migration from student_question_assignments into:
+    - student_question_profiles
+    - student_question_profile_items
+    - exam_attempt_snapshots
+    Groups by (teacher_id, student_id, exam_type), picks most recently updated record,
+    and preserves historical records in student_question_assignments untouched.
+    """
+    tables = [r[0] for r in c.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()]
+    if 'student_question_assignments' not in tables:
+        return
+    groups = c.execute("SELECT DISTINCT teacher_id, student_id, exam_type FROM student_question_assignments").fetchall()
+    for g in groups:
+        tid, sid, etype = g['teacher_id'], g['student_id'], g['exam_type']
+        exists = c.execute("SELECT id FROM student_question_profiles WHERE teacher_id=? AND student_id=? AND exam_type=?", (tid, sid, etype)).fetchone()
+        if exists:
+            continue
+        latest = c.execute("SELECT * FROM student_question_assignments WHERE teacher_id=? AND student_id=? AND exam_type=? ORDER BY updated_at DESC, id DESC LIMIT 1", (tid, sid, etype)).fetchone()
+        if not latest:
+            continue
+        raw_asgn = str(latest['assigned_question_ids'] or '').strip()
+        if raw_asgn in ('COMMON', '', 'None'):
+            continue
+        try:
+            qids = json.loads(raw_asgn)
+            if isinstance(qids, list) and len(qids) > 0:
+                cur = c.execute('''
+                    INSERT INTO student_question_profiles
+                        (teacher_id, student_id, exam_type, mode, version, created_by, updated_by, created_at, updated_at)
+                    VALUES (?, ?, ?, 'INDIVIDUAL', 1, ?, ?, ?, ?)
+                ''', (tid, sid, etype, latest['created_by'], latest['created_by'], latest['created_at'], latest['updated_at']))
+                prof_id = cur.lastrowid
+                for order, qid in enumerate(qids):
+                    c.execute('''
+                        INSERT OR IGNORE INTO student_question_profile_items
+                            (profile_id, question_id, sort_order, created_at)
+                        VALUES (?, ?, ?, ?)
+                    ''', (prof_id, int(qid), order, latest['created_at']))
+                if latest['attempt_locked']:
+                    snap_raw = latest['snapshot_question_ids'] or raw_asgn
+                    c.execute('''
+                        INSERT OR IGNORE INTO exam_attempt_snapshots
+                            (exam_instance_id, teacher_id, student_id, exam_type, profile_version, mode, snapshot_question_ids, created_at)
+                        VALUES (?, ?, ?, ?, 1, 'INDIVIDUAL', ?, ?)
+                    ''', (latest['exam_key'], tid, sid, etype, snap_raw, latest['created_at']))
+        except Exception:
+            pass
+
 def init_db(db_path=None):
     if db_path:
         app.config['DATABASE_PATH'] = db_path
@@ -110,7 +160,44 @@ CREATE TABLE IF NOT EXISTS mcq_status(id INTEGER PRIMARY KEY, student_id INTEGER
 CREATE TABLE IF NOT EXISTS exam_history(id INTEGER PRIMARY KEY, teacher_id INTEGER NOT NULL, teacher_name TEXT, exam_key TEXT, exam_date TEXT DEFAULT CURRENT_TIMESTAMP, total_students INTEGER, result_data TEXT, db_file TEXT);
 CREATE TABLE IF NOT EXISTS student_question_assignments(id INTEGER PRIMARY KEY AUTOINCREMENT, exam_key TEXT NOT NULL, teacher_id INTEGER NOT NULL, exam_type TEXT NOT NULL CHECK(exam_type IN ('coding', 'mcq')), student_id INTEGER NOT NULL, assigned_question_ids TEXT NOT NULL, created_by INTEGER NOT NULL, attempt_locked INTEGER DEFAULT 0, snapshot_question_ids TEXT, created_at TEXT DEFAULT CURRENT_TIMESTAMP, updated_at TEXT DEFAULT CURRENT_TIMESTAMP, UNIQUE(exam_key, teacher_id, exam_type, student_id));
 CREATE INDEX IF NOT EXISTS idx_sqa_lookup ON student_question_assignments(exam_key, teacher_id, exam_type, student_id);
-CREATE UNIQUE INDEX IF NOT EXISTS idx_mcq_status_single ON mcq_status(student_id, teacher_id, mcq_id);''')
+CREATE UNIQUE INDEX IF NOT EXISTS idx_mcq_status_single ON mcq_status(student_id, teacher_id, mcq_id);
+CREATE TABLE IF NOT EXISTS student_question_profiles (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    teacher_id INTEGER NOT NULL,
+    student_id INTEGER NOT NULL,
+    exam_type TEXT NOT NULL CHECK(exam_type IN ('coding', 'mcq')),
+    mode TEXT NOT NULL CHECK(mode IN ('COMMON', 'INDIVIDUAL')) DEFAULT 'COMMON',
+    version INTEGER NOT NULL DEFAULT 1,
+    created_by INTEGER NOT NULL,
+    updated_by INTEGER NOT NULL,
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(teacher_id, student_id, exam_type)
+);
+CREATE INDEX IF NOT EXISTS idx_sqp_lookup ON student_question_profiles(teacher_id, student_id, exam_type);
+CREATE TABLE IF NOT EXISTS student_question_profile_items (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    profile_id INTEGER NOT NULL REFERENCES student_question_profiles(id) ON DELETE CASCADE,
+    question_id INTEGER NOT NULL,
+    sort_order INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(profile_id, question_id)
+);
+CREATE INDEX IF NOT EXISTS idx_sqpi_lookup ON student_question_profile_items(profile_id, sort_order);
+CREATE TABLE IF NOT EXISTS exam_attempt_snapshots (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    exam_instance_id TEXT NOT NULL,
+    teacher_id INTEGER NOT NULL,
+    student_id INTEGER NOT NULL,
+    exam_type TEXT NOT NULL CHECK(exam_type IN ('coding', 'mcq')),
+    profile_version INTEGER NOT NULL DEFAULT 1,
+    mode TEXT NOT NULL CHECK(mode IN ('COMMON', 'INDIVIDUAL', 'INVALID')),
+    snapshot_question_ids TEXT NOT NULL,
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(exam_instance_id, teacher_id, exam_type, student_id)
+);
+CREATE INDEX IF NOT EXISTS idx_eas_lookup ON exam_attempt_snapshots(exam_instance_id, teacher_id, exam_type, student_id);
+''')
     for stmt in ("ALTER TABLE submissions ADD COLUMN score REAL DEFAULT 0", "ALTER TABLE submissions ADD COLUMN time_seconds INTEGER DEFAULT 0", "ALTER TABLE exam_access ADD COLUMN allowed INTEGER DEFAULT 1", "ALTER TABLE exam_access ADD COLUMN violations INTEGER DEFAULT 0", "ALTER TABLE exam_access ADD COLUMN last_violation_at REAL DEFAULT 0", "ALTER TABLE exam_access ADD COLUMN final_score REAL", "ALTER TABLE exam_access ADD COLUMN mcq_final_score REAL", "ALTER TABLE exam_access ADD COLUMN total_time INTEGER", "ALTER TABLE exam_access ADD COLUMN mcq_locked INTEGER DEFAULT 0", "ALTER TABLE exam_access ADD COLUMN mcq_violations INTEGER DEFAULT 0", "ALTER TABLE mcqs ADD COLUMN marks REAL DEFAULT 1", "ALTER TABLE mcqs ADD COLUMN time_limit INTEGER DEFAULT 30", "ALTER TABLE exam_state ADD COLUMN mcq_access_code TEXT", "ALTER TABLE exam_state ADD COLUMN coding_active INTEGER DEFAULT 1", "ALTER TABLE exam_state ADD COLUMN mcq_active INTEGER DEFAULT 0", "ALTER TABLE users ADD COLUMN department TEXT", "ALTER TABLE users ADD COLUMN session_token TEXT", "ALTER TABLE student_profiles ADD COLUMN class TEXT", "ALTER TABLE teacher_profiles ADD COLUMN section TEXT", "ALTER TABLE exam_history ADD COLUMN exam_key TEXT", "ALTER TABLE exam_history ADD COLUMN db_file TEXT", "ALTER TABLE student_question_assignments ADD COLUMN attempt_locked INTEGER DEFAULT 0", "ALTER TABLE student_question_assignments ADD COLUMN snapshot_question_ids TEXT"):
         try: c.execute(stmt)
         except sqlite3.OperationalError: pass
@@ -124,6 +211,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_mcq_status_single ON mcq_status(student_id
         c.execute("INSERT INTO users(username,name,role,password_hash) VALUES(?,?,?,?)", ('admin','Exam Admin','admin',generate_password_hash('Admin123!')))
     # Existing students remain allowed by default. Teachers can later revoke access per student.
     # Do NOT auto-insert students into exam_access — teacher must add them
+    migrate_to_permanent_profiles(c)
     c.commit(); c.close()
 
 init_db()
@@ -246,93 +334,144 @@ def current_exam(c=None):
     if close: c.close()
     return s, remaining
 
-def get_effective_assignment(c, student_id, teacher_id, exam_type, exam_key=None):
+def get_effective_assignment(c, student_id, teacher_id, exam_type, exam_key=None, exam_instance_id=None):
     """
     Returns (state, question_ids, attempt_locked).
     state is one of: 'COMMON', 'INDIVIDUAL', 'INVALID'.
     - 'COMMON': student takes common question set (if attempt is locked, question_ids is the locked snapshot).
     - 'INDIVIDUAL': student has an individual assignment (question_ids is the list of assigned/snapshot question IDs).
-    - 'INVALID': individual assignment is corrupted, empty, or references non-existent questions.
+    - 'INVALID': individual assignment is corrupted, empty, or references non-existent/inactive questions.
                  NEVER silently falls back to Common Mode.
     """
-    if not exam_key:
-        exam_key = session.get('exam_key')
-    if not exam_key:
-        st = c.execute('SELECT access_code, mcq_access_code FROM exam_state WHERE teacher_id=?', (teacher_id,)).fetchone()
-        if st:
-            exam_key = st['access_code'] if exam_type == 'coding' else st['mcq_access_code']
+    if not exam_instance_id:
+        sess_key = session.get('exam_key') if has_request_context() else None
+        exam_instance_id = exam_key or sess_key
 
-    if not exam_key:
-        return 'COMMON', None, False
+    # Case 1: Check locked attempt snapshot
+    snap = None
+    if exam_instance_id:
+        snap = c.execute('''
+            SELECT mode, snapshot_question_ids, profile_version
+            FROM exam_attempt_snapshots
+            WHERE exam_instance_id=? AND teacher_id=? AND exam_type=? AND student_id=?
+        ''', (str(exam_instance_id), teacher_id, exam_type, student_id)).fetchone()
 
-    row = c.execute('''
-        SELECT assigned_question_ids, attempt_locked, snapshot_question_ids
-        FROM student_question_assignments
-        WHERE exam_key=? AND teacher_id=? AND exam_type=? AND student_id=?
-    ''', (str(exam_key), teacher_id, exam_type, student_id)).fetchone()
+    if not snap:
+        ea = c.execute('SELECT joined_at FROM exam_access WHERE user_id=? AND teacher_id=?', (student_id, teacher_id)).fetchone()
+        if ea and ea['joined_at']:
+            snap = c.execute('''
+                SELECT exam_instance_id, mode, snapshot_question_ids, profile_version
+                FROM exam_attempt_snapshots
+                WHERE teacher_id=? AND exam_type=? AND student_id=?
+                ORDER BY id DESC LIMIT 1
+            ''', (teacher_id, exam_type, student_id)).fetchone()
 
-    if not row:
-        return 'COMMON', None, False
-
-    is_locked = bool(row['attempt_locked'])
-    assigned_raw = str(row['assigned_question_ids'] or '').strip()
-    snapshot_raw = str(row['snapshot_question_ids'] or '').strip()
-
-    # Case 1: Common Mode Snapshot
-    if assigned_raw == 'COMMON' or assigned_raw == '' or assigned_raw == 'None':
-        if is_locked and snapshot_raw:
+    if snap:
+        s_mode = snap['mode']
+        s_raw = str(snap['snapshot_question_ids'] or '').strip()
+        if s_mode == 'COMMON':
             try:
-                s_ids = json.loads(snapshot_raw)
+                s_ids = json.loads(s_raw)
                 if isinstance(s_ids, list) and len(s_ids) > 0:
-                    s_int_ids = [int(x) for x in s_ids]
-                    if exam_type == 'coding':
-                        existing = set(r[0] for r in c.execute('SELECT id FROM questions WHERE teacher_id=?', (teacher_id,)).fetchall())
-                    else:
-                        existing = set(r[0] for r in c.execute('SELECT id FROM mcqs WHERE teacher_id=?', (teacher_id,)).fetchall())
-                    valid_snapshot = [qid for qid in s_int_ids if qid in existing]
-                    if valid_snapshot:
-                        return 'COMMON', valid_snapshot, True
+                    return 'COMMON', [int(x) for x in s_ids], True
             except Exception:
                 pass
+            return 'COMMON', None, True
+        elif s_mode == 'INDIVIDUAL':
+            try:
+                qids = json.loads(s_raw)
+                if not isinstance(qids, list) or len(qids) == 0:
+                    return 'INVALID', None, True
+                int_qids = [int(x) for x in qids]
+                if exam_type == 'coding':
+                    existing = set(r[0] for r in c.execute('SELECT id FROM questions WHERE teacher_id=?', (teacher_id,)).fetchall())
+                else:
+                    existing = set(r[0] for r in c.execute('SELECT id FROM mcqs WHERE teacher_id=?', (teacher_id,)).fetchall())
+                valid_ordered = [qid for qid in int_qids if qid in existing]
+                if len(valid_ordered) != len(int_qids):
+                    return 'INVALID', None, True
+                return 'INDIVIDUAL', valid_ordered, True
+            except Exception:
+                return 'INVALID', None, True
+        elif s_mode == 'INVALID':
             return 'INVALID', None, True
-        return 'COMMON', None, is_locked
 
-    # Case 2: Individual Assignment
-    # If attempt is locked, question set must come from snapshot
-    if is_locked:
-        raw_to_parse = snapshot_raw or assigned_raw
+    # Case 2: Permanent Student Profile (Independent of Room Keys)
+    prof = c.execute('''
+        SELECT id, mode, version
+        FROM student_question_profiles
+        WHERE teacher_id=? AND student_id=? AND exam_type=?
+    ''', (teacher_id, student_id, exam_type)).fetchone()
+
+    if prof:
+        if prof['mode'] == 'INDIVIDUAL':
+            items = c.execute('''
+                SELECT question_id
+                FROM student_question_profile_items
+                WHERE profile_id=?
+                ORDER BY sort_order ASC, id ASC
+            ''', (prof['id'],)).fetchall()
+            if not items:
+                return 'INVALID', None, False
+            int_qids = [it['question_id'] for it in items]
+            if exam_type == 'coding':
+                active_src = set(r[0] for r in c.execute('SELECT id FROM questions WHERE teacher_id=? AND active=1', (teacher_id,)).fetchall())
+            else:
+                active_src = set(r[0] for r in c.execute('SELECT id FROM mcqs WHERE teacher_id=?', (teacher_id,)).fetchall())
+            valid_ordered = [qid for qid in int_qids if qid in active_src]
+            if len(valid_ordered) != len(int_qids):
+                return 'INVALID', None, False
+            return 'INDIVIDUAL', valid_ordered, False
+        elif prof['mode'] == 'COMMON':
+            return 'COMMON', None, False
+
+    # Case 3: Legacy student_question_assignments fallback (for backwards compat)
+    if exam_instance_id:
+        leg = c.execute('''
+            SELECT assigned_question_ids, attempt_locked, snapshot_question_ids
+            FROM student_question_assignments
+            WHERE exam_key=? AND teacher_id=? AND exam_type=? AND student_id=?
+        ''', (str(exam_instance_id), teacher_id, exam_type, student_id)).fetchone()
+    else:
+        leg = c.execute('''
+            SELECT assigned_question_ids, attempt_locked, snapshot_question_ids
+            FROM student_question_assignments
+            WHERE teacher_id=? AND student_id=? AND exam_type=?
+            ORDER BY id DESC LIMIT 1
+        ''', (teacher_id, student_id, exam_type)).fetchone()
+
+    if leg:
+        is_locked = bool(leg['attempt_locked'])
+        assigned_raw = str(leg['assigned_question_ids'] or '').strip()
+        snapshot_raw = str(leg['snapshot_question_ids'] or '').strip()
+        if assigned_raw == 'COMMON' or assigned_raw == '' or assigned_raw == 'None':
+            if is_locked and snapshot_raw:
+                try:
+                    s_ids = json.loads(snapshot_raw)
+                    if isinstance(s_ids, list) and len(s_ids) > 0:
+                        return 'COMMON', [int(x) for x in s_ids], True
+                except Exception:
+                    pass
+                return 'INVALID', None, True
+            return 'COMMON', None, is_locked
         try:
+            raw_to_parse = snapshot_raw if (is_locked and snapshot_raw) else assigned_raw
             qids = json.loads(raw_to_parse)
             if not isinstance(qids, list) or len(qids) == 0:
-                return 'INVALID', None, True
+                return 'INVALID', None, is_locked
             int_qids = [int(x) for x in qids]
             if exam_type == 'coding':
-                existing = set(r[0] for r in c.execute('SELECT id FROM questions WHERE teacher_id=?', (teacher_id,)).fetchall())
+                active_src = set(r[0] for r in c.execute('SELECT id FROM questions WHERE teacher_id=? AND active=1', (teacher_id,)).fetchall())
             else:
-                existing = set(r[0] for r in c.execute('SELECT id FROM mcqs WHERE teacher_id=?', (teacher_id,)).fetchall())
-            valid_ordered = [qid for qid in int_qids if qid in existing]
+                active_src = set(r[0] for r in c.execute('SELECT id FROM mcqs WHERE teacher_id=?', (teacher_id,)).fetchall())
+            valid_ordered = [qid for qid in int_qids if qid in active_src]
             if len(valid_ordered) != len(int_qids):
-                return 'INVALID', None, True
-            return 'INDIVIDUAL', valid_ordered, True
+                return 'INVALID', None, is_locked
+            return 'INDIVIDUAL', valid_ordered, is_locked
         except Exception:
-            return 'INVALID', None, True
+            return 'INVALID', None, is_locked
 
-    # Attempt not locked yet: validate assigned_question_ids
-    try:
-        qids = json.loads(assigned_raw)
-        if not isinstance(qids, list) or len(qids) == 0:
-            return 'INVALID', None, False
-        int_qids = [int(x) for x in qids]
-        if exam_type == 'coding':
-            active_src = set(r[0] for r in c.execute('SELECT id FROM questions WHERE teacher_id=? AND active=1', (teacher_id,)).fetchall())
-        else:
-            active_src = set(r[0] for r in c.execute('SELECT id FROM mcqs WHERE teacher_id=?', (teacher_id,)).fetchall())
-        valid_ordered = [qid for qid in int_qids if qid in active_src]
-        if len(valid_ordered) != len(int_qids):
-            return 'INVALID', None, False
-        return 'INDIVIDUAL', valid_ordered, False
-    except Exception:
-        return 'INVALID', None, False
+    return 'COMMON', None, False
 
 def is_question_authorized(c, student_id, teacher_id, exam_type, question_id, exam_key=None):
     """True if question_id is authorized for student_id in this exam instance."""
@@ -357,17 +496,19 @@ def is_question_authorized(c, student_id, teacher_id, exam_type, question_id, ex
     return False
 
 def get_student_teacher_id(c, uid):
-    tid = session.get('teacher_id')
+    tid = session.get('teacher_id') if has_request_context() else None
     if tid: return tid
     acc = c.execute('SELECT teacher_id FROM exam_access WHERE user_id=? AND teacher_id IS NOT NULL ORDER BY rowid DESC LIMIT 1', (uid,)).fetchone()
     if acc and acc['teacher_id']:
-        session['teacher_id'] = acc['teacher_id']
+        if has_request_context():
+            session['teacher_id'] = acc['teacher_id']
         return acc['teacher_id']
     st = c.execute('SELECT teacher_id FROM exam_state WHERE active=1 LIMIT 1').fetchone()
     if st and st['teacher_id']:
-        session['teacher_id'] = st['teacher_id']
+        if has_request_context():
+            session['teacher_id'] = st['teacher_id']
         return st['teacher_id']
-    return session.get('user_id')
+    return session.get('user_id') if has_request_context() else None
 
 def has_exam_access(uid):
     """True if student can access ANY active exam (coding OR MCQ)."""
@@ -1468,6 +1609,7 @@ def exam_start_coding():
     c.execute("DELETE FROM activity WHERE teacher_id=?",(session["user_id"],))
     c.execute("DELETE FROM mcq_status WHERE teacher_id=?",(session["user_id"],))
     c.execute("DELETE FROM drafts WHERE question_id IN (SELECT id FROM questions WHERE teacher_id=?)", (session["user_id"],))
+    c.execute("DELETE FROM exam_attempt_snapshots WHERE teacher_id=? AND exam_type='coding'", (session["user_id"],))
     c.execute("UPDATE exam_access SET joined_at=NULL,locked=0,violations=0,last_violation_at=0,final_score=NULL,mcq_final_score=NULL,total_time=NULL,mcq_locked=0,mcq_violations=0 WHERE teacher_id=?", (session['user_id'],))
     c.execute("INSERT INTO exam_state (teacher_id, active, coding_active, access_code, duration_minutes, started_at) VALUES (?, 1, 1, ?, ?, ?) ON CONFLICT(teacher_id) DO UPDATE SET active=1, coding_active=1, access_code=excluded.access_code, duration_minutes=excluded.duration_minutes, started_at=excluded.started_at", (session['user_id'], exam_code, minutes, time.time()))
     c.commit(); c.close(); return jsonify(ok=True,access_code=exam_code)
@@ -1484,6 +1626,7 @@ def exam_start_mcq():
     c.execute("DELETE FROM submissions WHERE teacher_id=?",(session["user_id"],))
     c.execute("DELETE FROM activity WHERE teacher_id=?",(session["user_id"],))
     c.execute("DELETE FROM drafts WHERE question_id IN (SELECT id FROM questions WHERE teacher_id=?)", (session["user_id"],))
+    c.execute("DELETE FROM exam_attempt_snapshots WHERE teacher_id=? AND exam_type='mcq'", (session["user_id"],))
     c.execute("UPDATE exam_access SET joined_at=NULL,locked=0,violations=0,last_violation_at=0,final_score=NULL,mcq_final_score=NULL,total_time=NULL,mcq_locked=0,mcq_violations=0 WHERE teacher_id=?", (session['user_id'],))
     c.execute("INSERT INTO exam_state (teacher_id, active, mcq_active, mcq_access_code) VALUES (?, 1, 1, ?) ON CONFLICT(teacher_id) DO UPDATE SET active=1, mcq_active=1, mcq_access_code=excluded.mcq_access_code", (session['user_id'], mcq_code))
     c.commit(); c.close(); return jsonify(ok=True,mcq_access_code=mcq_code)
@@ -1507,7 +1650,7 @@ def exam_clear_keys():
     c.execute("DELETE FROM drafts WHERE question_id IN (SELECT id FROM questions WHERE teacher_id=?)", (tid,))
     c.execute("DELETE FROM mcq_status WHERE teacher_id=?", (tid,))
     c.execute("DELETE FROM activity WHERE teacher_id=?", (tid,))
-    c.execute("DELETE FROM student_question_assignments WHERE teacher_id=?", (tid,))
+    c.execute("DELETE FROM exam_attempt_snapshots WHERE teacher_id=?", (tid,))
     c.execute("UPDATE exam_access SET joined_at=NULL,locked=0,violations=0,last_violation_at=0,final_score=NULL,mcq_final_score=NULL,total_time=NULL,mcq_locked=0,mcq_violations=0 WHERE teacher_id=?", (tid,))
     c.execute('UPDATE exam_state SET access_code=NULL, mcq_access_code=NULL, active=0, coding_active=0, mcq_active=0 WHERE teacher_id=?', (tid,))
     c.commit(); c.close(); return jsonify(ok=True)
@@ -1611,7 +1754,7 @@ def exam_join():
 
     # Now check student's access status
     row = c.execute(
-        'SELECT allowed, locked, mcq_locked FROM exam_access WHERE user_id=? AND teacher_id=?',
+        'SELECT allowed, locked, mcq_locked, joined_at FROM exam_access WHERE user_id=? AND teacher_id=?',
         (session['user_id'], teacher_id)
     ).fetchone()
 
@@ -1629,34 +1772,72 @@ def exam_join():
     session['exam_type'] = exam_type
     session['exam_key'] = key
     
-    state, qids_join, locked = get_effective_assignment(c, session['user_id'], teacher_id, exam_type, key)
-    if state == 'INVALID':
-        c.close()
-        return jsonify(error="Invalid question assignment. Please contact your examination proctor.", assignment_state="INVALID"), 400
-        
-    if state == 'INDIVIDUAL':
-        c.execute('''
-            UPDATE student_question_assignments
-            SET attempt_locked=1, snapshot_question_ids=?, updated_at=CURRENT_TIMESTAMP
-            WHERE exam_key=? AND teacher_id=? AND exam_type=? AND student_id=?
-        ''', (json.dumps(qids_join), str(key), teacher_id, exam_type, session['user_id']))
-    elif state == 'COMMON' and not locked:
-        # Snapshot the common question set at attempt start!
-        if exam_type == 'coding':
-            c_rows = c.execute("SELECT id FROM questions WHERE teacher_id=? AND active=1 ORDER BY id DESC", (teacher_id,)).fetchall()
-        else:
-            c_rows = c.execute("SELECT id FROM mcqs WHERE teacher_id=? ORDER BY id", (teacher_id,)).fetchall()
-        common_qids = [r['id'] for r in c_rows]
-        c.execute('''
-            INSERT INTO student_question_assignments
-                (exam_key, teacher_id, exam_type, student_id, assigned_question_ids, created_by, attempt_locked, snapshot_question_ids, updated_at)
-            VALUES (?, ?, ?, ?, 'COMMON', ?, 1, ?, CURRENT_TIMESTAMP)
-            ON CONFLICT(exam_key, teacher_id, exam_type, student_id) DO UPDATE SET
-                attempt_locked=1,
-                snapshot_question_ids=excluded.snapshot_question_ids,
-                updated_at=CURRENT_TIMESTAMP
-            WHERE assigned_question_ids='COMMON' OR assigned_question_ids IS NULL
-        ''', (str(key), teacher_id, exam_type, session['user_id'], session['user_id'], json.dumps(common_qids)))
+    # Check if this student is reconnecting to an ongoing attempt
+    is_reconnect = bool(row and row['joined_at'])
+    snap = None
+    if is_reconnect:
+        snap = c.execute('''
+            SELECT mode, snapshot_question_ids FROM exam_attempt_snapshots
+            WHERE exam_instance_id=? AND teacher_id=? AND exam_type=? AND student_id=?
+        ''', (str(key), teacher_id, exam_type, session['user_id'])).fetchone()
+    
+    if snap:
+        state = snap['mode']
+        if state == 'INVALID':
+            c.close()
+            return jsonify(error="Invalid question assignment. Please contact your examination proctor.", assignment_state="INVALID"), 400
+    else:
+        state, qids_join, locked = get_effective_assignment(c, session['user_id'], teacher_id, exam_type, key)
+        if state == 'INVALID':
+            c.close()
+            return jsonify(error="Invalid question assignment. Please contact your examination proctor.", assignment_state="INVALID"), 400
+            
+        if state == 'INDIVIDUAL':
+            prof = c.execute("SELECT version FROM student_question_profiles WHERE teacher_id=? AND student_id=? AND exam_type=?", (teacher_id, session['user_id'], exam_type)).fetchone()
+            p_ver = prof['version'] if prof else 1
+            c.execute('''
+                INSERT INTO exam_attempt_snapshots
+                    (exam_instance_id, teacher_id, student_id, exam_type, profile_version, mode, snapshot_question_ids, created_at)
+                VALUES (?, ?, ?, ?, ?, 'INDIVIDUAL', ?, CURRENT_TIMESTAMP)
+                ON CONFLICT(exam_instance_id, teacher_id, exam_type, student_id) DO UPDATE SET
+                    snapshot_question_ids=excluded.snapshot_question_ids,
+                    profile_version=excluded.profile_version,
+                    mode='INDIVIDUAL'
+            ''', (str(key), teacher_id, session['user_id'], exam_type, p_ver, json.dumps(qids_join)))
+            c.execute('''
+                INSERT INTO student_question_assignments
+                    (exam_key, teacher_id, exam_type, student_id, assigned_question_ids, created_by, attempt_locked, snapshot_question_ids, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, 1, ?, CURRENT_TIMESTAMP)
+                ON CONFLICT(exam_key, teacher_id, exam_type, student_id) DO UPDATE SET
+                    attempt_locked=1,
+                    snapshot_question_ids=excluded.snapshot_question_ids,
+                    updated_at=CURRENT_TIMESTAMP
+            ''', (str(key), teacher_id, exam_type, session['user_id'], json.dumps(qids_join), teacher_id, json.dumps(qids_join)))
+        elif state == 'COMMON' and not locked:
+            # Snapshot the common question set at attempt start!
+            if exam_type == 'coding':
+                c_rows = c.execute("SELECT id FROM questions WHERE teacher_id=? AND active=1 ORDER BY id DESC", (teacher_id,)).fetchall()
+            else:
+                c_rows = c.execute("SELECT id FROM mcqs WHERE teacher_id=? ORDER BY id", (teacher_id,)).fetchall()
+            common_qids = [r['id'] for r in c_rows]
+            c.execute('''
+                INSERT INTO exam_attempt_snapshots
+                    (exam_instance_id, teacher_id, student_id, exam_type, profile_version, mode, snapshot_question_ids, created_at)
+                VALUES (?, ?, ?, ?, 1, 'COMMON', ?, CURRENT_TIMESTAMP)
+                ON CONFLICT(exam_instance_id, teacher_id, exam_type, student_id) DO UPDATE SET
+                    snapshot_question_ids=excluded.snapshot_question_ids,
+                    mode='COMMON'
+            ''', (str(key), teacher_id, session['user_id'], exam_type, json.dumps(common_qids)))
+            c.execute('''
+                INSERT INTO student_question_assignments
+                    (exam_key, teacher_id, exam_type, student_id, assigned_question_ids, created_by, attempt_locked, snapshot_question_ids, updated_at)
+                VALUES (?, ?, ?, ?, 'COMMON', ?, 1, ?, CURRENT_TIMESTAMP)
+                ON CONFLICT(exam_key, teacher_id, exam_type, student_id) DO UPDATE SET
+                    attempt_locked=1,
+                    snapshot_question_ids=excluded.snapshot_question_ids,
+                    updated_at=CURRENT_TIMESTAMP
+                WHERE assigned_question_ids='COMMON' OR assigned_question_ids IS NULL
+            ''', (str(key), teacher_id, exam_type, session['user_id'], session['user_id'], json.dumps(common_qids)))
 
     c.execute(
         'UPDATE exam_access SET joined_at=COALESCE(joined_at,?) WHERE user_id=? AND teacher_id=?',
@@ -2623,6 +2804,25 @@ def save_assignment():
                 snapshot_question_ids=NULL,
                 updated_at=CURRENT_TIMESTAMP
         ''', (exam_key, teacher_id, exam_type, student_id, json.dumps(final_ordered), session['user_id']))
+
+        # Also persist to Permanent Student Question Profiles
+        c.execute('''
+            INSERT INTO student_question_profiles
+                (teacher_id, student_id, exam_type, mode, version, created_by, updated_by, created_at, updated_at)
+            VALUES (?, ?, ?, 'INDIVIDUAL', 1, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+            ON CONFLICT(teacher_id, student_id, exam_type) DO UPDATE SET
+                mode='INDIVIDUAL',
+                version=version + 1,
+                updated_by=excluded.updated_by,
+                updated_at=CURRENT_TIMESTAMP
+        ''', (teacher_id, student_id, exam_type, session['user_id'], session['user_id']))
+        prof_row = c.execute("SELECT id FROM student_question_profiles WHERE teacher_id=? AND student_id=? AND exam_type=?", (teacher_id, student_id, exam_type)).fetchone()
+        if prof_row:
+            prof_id = prof_row['id']
+            c.execute("DELETE FROM student_question_profile_items WHERE profile_id=?", (prof_id,))
+            for sort_order, qid in enumerate(final_ordered):
+                c.execute("INSERT INTO student_question_profile_items (profile_id, question_id, sort_order) VALUES (?, ?, ?)", (prof_id, qid, sort_order))
+
         c.commit()
         return jsonify(ok=True, message=f'Successfully assigned {len(final_ordered)} question(s) to student.', assigned_question_ids=final_ordered)
     finally:
@@ -2694,6 +2894,15 @@ def reset_assignment():
         if asgn and asgn['attempt_locked']:
             return jsonify(error='Cannot reset assignment: Student has already started the examination attempt.'), 400
             
+        prof = c.execute("SELECT id FROM student_question_profiles WHERE teacher_id=? AND student_id=? AND exam_type=?", (teacher_id, student_id, exam_type)).fetchone()
+        if prof:
+            c.execute("DELETE FROM student_question_profile_items WHERE profile_id=?", (prof['id'],))
+            c.execute('''
+                UPDATE student_question_profiles
+                SET mode='COMMON', version=version + 1, updated_by=?, updated_at=CURRENT_TIMESTAMP
+                WHERE id=?
+            ''', (session['user_id'], prof['id']))
+
         c.execute('''
             DELETE FROM student_question_assignments
             WHERE exam_key=? AND teacher_id=? AND exam_type=? AND student_id=?
@@ -2702,6 +2911,405 @@ def reset_assignment():
         return jsonify(ok=True, message='Student reset to Common Questions mode.')
     finally:
         c.close()
+
+# ==================== PERMANENT STUDENT QUESTION ASSIGNMENT APIS ====================
+
+@app.get('/api/permanent-assignments')
+@auth()
+def get_permanent_assignments():
+    if session.get('role') not in ('teacher', 'admin'):
+        return jsonify(error='Unauthorized'), 401
+    
+    exam_type = str(request.args.get('exam_type', 'coding')).strip().lower()
+    if exam_type not in ('coding', 'mcq'):
+        exam_type = 'coding'
+        
+    c = conn()
+    try:
+        if session.get('role') == 'teacher':
+            teacher_id = session['user_id']
+        else:
+            teacher_id = request.args.get('teacher_id', type=int)
+            if not teacher_id:
+                first_t = c.execute("SELECT id FROM users WHERE role='teacher' ORDER BY name LIMIT 1").fetchone()
+                teacher_id = first_t['id'] if first_t else session['user_id']
+                
+        t_user = c.execute("SELECT id, name FROM users WHERE id=?", (teacher_id,)).fetchone()
+        teacher_name = t_user['name'] if t_user else 'Teacher'
+
+        # Fetch teacher's questions
+        if exam_type == 'coding':
+            q_rows = c.execute('''
+                SELECT q.id, q.title, q.prompt, q.language,
+                       COALESCE((SELECT SUM(marks) FROM test_cases WHERE question_id=q.id), 0) as marks
+                FROM questions q
+                WHERE q.teacher_id=? AND q.active=1
+                ORDER BY q.id DESC
+            ''', (teacher_id,)).fetchall()
+            questions = [{'id': r['id'], 'title': r['title'], 'prompt': r['prompt'], 'language': r['language'], 'marks': float(r['marks'] or 0)} for r in q_rows]
+        else:
+            m_rows = c.execute('''
+                SELECT id, question, marks, time_limit
+                FROM mcqs
+                WHERE teacher_id=?
+                ORDER BY id
+            ''', (teacher_id,)).fetchall()
+            questions = [{'id': r['id'], 'title': r['question'], 'marks': float(r['marks'] or 1.0), 'time_limit': r['time_limit']} for r in m_rows]
+
+        # Fetch students
+        if session.get('role') == 'admin':
+            stud_rows = c.execute('''
+                SELECT u.id, u.name, u.username, p.register_number, p.department, p.section, p.year,
+                       e.joined_at, e.locked, e.mcq_locked
+                FROM users u
+                LEFT JOIN student_profiles p ON p.user_id=u.id
+                LEFT JOIN exam_access e ON e.user_id=u.id AND e.teacher_id=?
+                WHERE u.role='student'
+                ORDER BY u.name
+            ''', (teacher_id,)).fetchall()
+        else:
+            stud_rows = c.execute('''
+                SELECT u.id, u.name, u.username, p.register_number, p.department, p.section, p.year,
+                       e.joined_at, e.locked, e.mcq_locked
+                FROM users u
+                JOIN exam_access e ON u.id=e.user_id AND e.teacher_id=?
+                LEFT JOIN student_profiles p ON p.user_id=u.id
+                WHERE u.role='student'
+                ORDER BY u.name
+            ''', (teacher_id,)).fetchall()
+
+        # Load permanent profiles
+        prof_rows = c.execute('''
+            SELECT id, student_id, mode, version, updated_at
+            FROM student_question_profiles
+            WHERE teacher_id=? AND exam_type=?
+        ''', (teacher_id, exam_type)).fetchall()
+        
+        prof_map = {}
+        for pr in prof_rows:
+            items = c.execute('''
+                SELECT question_id FROM student_question_profile_items
+                WHERE profile_id=?
+                ORDER BY sort_order ASC, id ASC
+            ''', (pr['id'],)).fetchall()
+            prof_map[pr['student_id']] = {
+                'id': pr['id'],
+                'mode': pr['mode'],
+                'version': pr['version'],
+                'updated_at': pr['updated_at'],
+                'assigned_question_ids': [it['question_id'] for it in items]
+            }
+
+        departments = set()
+        sections = set()
+        years = set()
+        students = []
+
+        all_q_ids = [q['id'] for q in questions]
+
+        for s in stud_rows:
+            sid = s['id']
+            dept = (s['department'] or '').strip()
+            sec = (s['section'] or '').strip()
+            yr = (s['year'] or '').strip()
+            if dept: departments.add(dept)
+            if sec: sections.add(sec)
+            if yr: years.add(yr)
+
+            prof = prof_map.get(sid)
+            is_indiv = bool(prof and prof['mode'] == 'INDIVIDUAL')
+            attempt_active = bool(s['joined_at'])
+
+            assigned_ids = prof['assigned_question_ids'] if (prof and is_indiv) else all_q_ids
+
+            students.append({
+                'id': sid,
+                'name': s['name'],
+                'username': s['username'],
+                'register_number': s['register_number'] or s['username'],
+                'department': dept,
+                'section': sec,
+                'year': yr,
+                'mode': 'INDIVIDUAL' if is_indiv else 'COMMON',
+                'assigned_question_ids': assigned_ids,
+                'version': prof['version'] if prof else 1,
+                'updated_at': prof['updated_at'] if prof else None,
+                'attempt_active': attempt_active
+            })
+
+        teachers_list = []
+        if session.get('role') == 'admin':
+            teachers_list = [{'id': t['id'], 'name': t['name']} for t in c.execute("SELECT id, name FROM users WHERE role='teacher' ORDER BY name").fetchall()]
+
+        return jsonify(
+            ok=True,
+            exam_type=exam_type,
+            teacher_id=teacher_id,
+            teacher_name=teacher_name,
+            teachers=teachers_list,
+            questions=questions,
+            total_questions=len(questions),
+            students=students,
+            total_students=len(students),
+            departments=sorted(list(departments)),
+            sections=sorted(list(sections)),
+            years=sorted(list(years))
+        )
+    finally:
+        c.close()
+
+@app.post('/api/permanent-assignments/bulk')
+@auth()
+def bulk_save_permanent_assignments():
+    if session.get('role') not in ('teacher', 'admin'):
+        return jsonify(error='Unauthorized'), 401
+    d = request.get_json() or {}
+    exam_type = str(d.get('exam_type', '')).strip().lower()
+    student_ids = d.get('student_ids')
+    question_ids = d.get('question_ids')
+    requested_teacher_id = d.get('teacher_id')
+    
+    if exam_type not in ('coding', 'mcq'):
+        return jsonify(error='Valid exam_type (coding/mcq) is required.'), 400
+    if not student_ids or not isinstance(student_ids, list) or len(student_ids) == 0:
+        return jsonify(error='Please select at least one student.'), 400
+    if not question_ids or not isinstance(question_ids, list) or len(question_ids) == 0:
+        return jsonify(error='Please select at least one question for individual assignment.'), 400
+
+    c = conn()
+    try:
+        if session.get('role') == 'teacher':
+            teacher_id = session['user_id']
+            if requested_teacher_id and int(requested_teacher_id) != teacher_id:
+                return jsonify(error='You do not own this examination.'), 403
+        else:
+            teacher_id = requested_teacher_id
+            if not teacher_id:
+                return jsonify(error='Teacher ID is required for admin.'), 400
+            t_user = c.execute("SELECT id FROM users WHERE id=? AND role='teacher'", (teacher_id,)).fetchone()
+            if not t_user:
+                return jsonify(error='Invalid or non-existent teacher specified.'), 400
+
+        selected_set = set(int(x) for x in question_ids)
+        if exam_type == 'coding':
+            src = c.execute("SELECT id FROM questions WHERE teacher_id=? AND active=1 ORDER BY id DESC", (teacher_id,)).fetchall()
+        else:
+            src = c.execute("SELECT id FROM mcqs WHERE teacher_id=? ORDER BY id", (teacher_id,)).fetchall()
+        src_ids = [r['id'] for r in src]
+        src_set = set(src_ids)
+        if not selected_set.issubset(src_set):
+            return jsonify(error='One or more selected questions do not belong to this teacher or are inactive.'), 400
+
+        # Preserve order without duplicates
+        final_ordered = []
+        for q in question_ids:
+            iq = int(q)
+            if iq in selected_set and iq not in final_ordered:
+                final_ordered.append(iq)
+
+        with c:
+            for s_id in student_ids:
+                sid = int(s_id)
+                s_user = c.execute("SELECT id FROM users WHERE id=? AND role='student'", (sid,)).fetchone()
+                if not s_user:
+                    continue
+                c.execute("INSERT OR IGNORE INTO exam_access (user_id, teacher_id, allowed) VALUES (?, ?, 1)", (sid, teacher_id))
+                
+                c.execute('''
+                    INSERT INTO student_question_profiles
+                        (teacher_id, student_id, exam_type, mode, version, created_by, updated_by, created_at, updated_at)
+                    VALUES (?, ?, ?, 'INDIVIDUAL', 1, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                    ON CONFLICT(teacher_id, student_id, exam_type) DO UPDATE SET
+                        mode='INDIVIDUAL',
+                        version=version + 1,
+                        updated_by=excluded.updated_by,
+                        updated_at=CURRENT_TIMESTAMP
+                ''', (teacher_id, sid, exam_type, session['user_id'], session['user_id']))
+                
+                prof_row = c.execute("SELECT id FROM student_question_profiles WHERE teacher_id=? AND student_id=? AND exam_type=?", (teacher_id, sid, exam_type)).fetchone()
+                prof_id = prof_row['id']
+                
+                c.execute("DELETE FROM student_question_profile_items WHERE profile_id=?", (prof_id,))
+                for sort_order, qid in enumerate(final_ordered):
+                    c.execute('''
+                        INSERT INTO student_question_profile_items (profile_id, question_id, sort_order)
+                        VALUES (?, ?, ?)
+                    ''', (prof_id, qid, sort_order))
+
+                # Also sync legacy table for backward compat
+                st = c.execute("SELECT access_code, mcq_access_code FROM exam_state WHERE teacher_id=?", (teacher_id,)).fetchone()
+                exam_key = (st['access_code'] if exam_type == 'coding' else st['mcq_access_code']) if st else 'PERMANENT'
+                if exam_key:
+                    c.execute('''
+                        INSERT INTO student_question_assignments
+                            (exam_key, teacher_id, exam_type, student_id, assigned_question_ids, created_by, attempt_locked, snapshot_question_ids, updated_at)
+                        VALUES (?, ?, ?, ?, ?, ?, 0, NULL, CURRENT_TIMESTAMP)
+                        ON CONFLICT(exam_key, teacher_id, exam_type, student_id) DO UPDATE SET
+                            assigned_question_ids=excluded.assigned_question_ids,
+                            updated_at=CURRENT_TIMESTAMP
+                        WHERE attempt_locked=0
+                    ''', (str(exam_key), teacher_id, exam_type, sid, json.dumps(final_ordered), session['user_id']))
+
+        log(session['user_id'], 'permanent_assignment_bulk_saved', f"{len(student_ids)} students, {len(final_ordered)} questions, {exam_type}")
+        return jsonify(
+            ok=True,
+            count=len(student_ids),
+            message=f"Successfully assigned {len(final_ordered)} question(s) to {len(student_ids)} student(s)."
+        )
+    finally:
+        c.close()
+
+@app.post('/api/permanent-assignments/distribute')
+@auth()
+def distribute_permanent_assignments():
+    if session.get('role') not in ('teacher', 'admin'):
+        return jsonify(error='Unauthorized'), 401
+    d = request.get_json() or {}
+    exam_type = str(d.get('exam_type', '')).strip().lower()
+    student_ids = d.get('student_ids')
+    question_ids = d.get('question_ids')
+    requested_teacher_id = d.get('teacher_id')
+    
+    if exam_type not in ('coding', 'mcq'):
+        return jsonify(error='Valid exam_type (coding/mcq) is required.'), 400
+    if not student_ids or not isinstance(student_ids, list) or len(student_ids) == 0:
+        return jsonify(error='Please select at least one student.'), 400
+    if not question_ids or not isinstance(question_ids, list) or len(question_ids) == 0:
+        return jsonify(error='Please select at least one question.'), 400
+    if len(student_ids) != len(question_ids):
+        return jsonify(error=f'Student count ({len(student_ids)}) and question count ({len(question_ids)}) must match for 1-to-1 distribution.'), 400
+
+    c = conn()
+    try:
+        if session.get('role') == 'teacher':
+            teacher_id = session['user_id']
+            if requested_teacher_id and int(requested_teacher_id) != teacher_id:
+                return jsonify(error='You do not own this examination.'), 403
+        else:
+            teacher_id = requested_teacher_id
+            if not teacher_id:
+                return jsonify(error='Teacher ID is required for admin.'), 400
+            t_user = c.execute("SELECT id FROM users WHERE id=? AND role='teacher'", (teacher_id,)).fetchone()
+            if not t_user:
+                return jsonify(error='Invalid or non-existent teacher specified.'), 400
+
+        selected_set = set(int(x) for x in question_ids)
+        if exam_type == 'coding':
+            src = c.execute("SELECT id FROM questions WHERE teacher_id=? AND active=1 ORDER BY id DESC", (teacher_id,)).fetchall()
+        else:
+            src = c.execute("SELECT id FROM mcqs WHERE teacher_id=? ORDER BY id", (teacher_id,)).fetchall()
+        src_set = set(r['id'] for r in src)
+        if not selected_set.issubset(src_set):
+            return jsonify(error='One or more selected questions do not belong to this teacher or are inactive.'), 400
+
+        with c:
+            for i, sid in enumerate(student_ids):
+                s_int = int(sid)
+                qid = int(question_ids[i])
+                s_user = c.execute("SELECT id FROM users WHERE id=? AND role='student'", (s_int,)).fetchone()
+                if not s_user:
+                    continue
+                c.execute("INSERT OR IGNORE INTO exam_access (user_id, teacher_id, allowed) VALUES (?, ?, 1)", (s_int, teacher_id))
+                
+                c.execute('''
+                    INSERT INTO student_question_profiles
+                        (teacher_id, student_id, exam_type, mode, version, created_by, updated_by, created_at, updated_at)
+                    VALUES (?, ?, ?, 'INDIVIDUAL', 1, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                    ON CONFLICT(teacher_id, student_id, exam_type) DO UPDATE SET
+                        mode='INDIVIDUAL',
+                        version=version + 1,
+                        updated_by=excluded.updated_by,
+                        updated_at=CURRENT_TIMESTAMP
+                ''', (teacher_id, s_int, exam_type, session['user_id'], session['user_id']))
+                
+                prof_row = c.execute("SELECT id FROM student_question_profiles WHERE teacher_id=? AND student_id=? AND exam_type=?", (teacher_id, s_int, exam_type)).fetchone()
+                prof_id = prof_row['id']
+                c.execute("DELETE FROM student_question_profile_items WHERE profile_id=?", (prof_id,))
+                c.execute("INSERT INTO student_question_profile_items (profile_id, question_id, sort_order) VALUES (?, ?, 0)", (prof_id, qid))
+
+        log(session['user_id'], 'permanent_assignment_distributed', f"{len(student_ids)} students distributed 1-to-1, {exam_type}")
+        return jsonify(
+            ok=True,
+            count=len(student_ids),
+            message=f"Successfully distributed 1 question per student to {len(student_ids)} student(s)."
+        )
+    finally:
+        c.close()
+
+@app.post('/api/permanent-assignments/bulk-reset')
+@auth()
+def bulk_reset_permanent_assignments():
+    if session.get('role') not in ('teacher', 'admin'):
+        return jsonify(error='Unauthorized'), 401
+    d = request.get_json() or {}
+    exam_type = str(d.get('exam_type', '')).strip().lower()
+    student_ids = d.get('student_ids')
+    requested_teacher_id = d.get('teacher_id')
+
+    if exam_type not in ('coding', 'mcq'):
+        return jsonify(error='Valid exam_type (coding/mcq) is required.'), 400
+    if not student_ids or not isinstance(student_ids, list) or len(student_ids) == 0:
+        return jsonify(error='Please select at least one student to reset.'), 400
+
+    c = conn()
+    try:
+        if session.get('role') == 'teacher':
+            teacher_id = session['user_id']
+            if requested_teacher_id and int(requested_teacher_id) != teacher_id:
+                return jsonify(error='You do not own this examination.'), 403
+        else:
+            teacher_id = requested_teacher_id
+            if not teacher_id:
+                return jsonify(error='Teacher ID is required for admin.'), 400
+            t_user = c.execute("SELECT id FROM users WHERE id=? AND role='teacher'", (teacher_id,)).fetchone()
+            if not t_user:
+                return jsonify(error='Invalid or non-existent teacher specified.'), 400
+
+        with c:
+            for sid in student_ids:
+                s_int = int(sid)
+                prof = c.execute("SELECT id FROM student_question_profiles WHERE teacher_id=? AND student_id=? AND exam_type=?", (teacher_id, s_int, exam_type)).fetchone()
+                if prof:
+                    c.execute("DELETE FROM student_question_profile_items WHERE profile_id=?", (prof['id'],))
+                    c.execute('''
+                        UPDATE student_question_profiles
+                        SET mode='COMMON', version=version + 1, updated_by=?, updated_at=CURRENT_TIMESTAMP
+                        WHERE id=?
+                    ''', (session['user_id'], prof['id']))
+                c.execute("DELETE FROM student_question_assignments WHERE teacher_id=? AND student_id=? AND exam_type=?", (teacher_id, s_int, exam_type))
+
+        log(session['user_id'], 'permanent_assignment_bulk_reset', f"{len(student_ids)} students reset, {exam_type}")
+        return jsonify(
+            ok=True,
+            count=len(student_ids),
+            message=f"Successfully reset {len(student_ids)} student(s) to Common Questions mode."
+        )
+    finally:
+        c.close()
+
+@app.post('/api/permanent-assignments/save')
+@auth()
+def save_single_permanent_assignment():
+    d = request.get_json() or {}
+    sid = d.get('student_id')
+    if not sid:
+        return jsonify(error='student_id is required'), 400
+    d['student_ids'] = [sid]
+    return bulk_save_permanent_assignments()
+
+@app.put('/api/permanent-assignments/<int:student_id>')
+@auth()
+def put_single_permanent_assignment(student_id):
+    d = request.get_json() or {}
+    d['student_ids'] = [student_id]
+    return bulk_save_permanent_assignments()
+
+@app.post('/api/permanent-assignments/<int:student_id>/reset')
+@auth()
+def reset_single_permanent_assignment(student_id):
+    d = request.get_json() or {}
+    d['student_ids'] = [student_id]
+    return bulk_reset_permanent_assignments()
 
 if __name__ == '__main__':
     import sys

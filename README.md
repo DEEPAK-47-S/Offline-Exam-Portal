@@ -6,15 +6,17 @@ An enterprise-grade, offline-first Examination Management and Anti-Cheat Platfor
 
 ## 🌟 Key Features
 
-### 1. 🎯 Individual Student Question Control (Latest Feature)
-Allows Administrators and Teachers to customize the exact question set a student receives for any examination:
+### 1. 🎯 Permanent Individual Student Question Assignment System (Latest Feature)
+Allows Administrators and Teachers to configure permanent question assignments per student, completely independent of room keys:
+- **Permanent Teacher-Student Profiles:** Assignments belong to `(teacher_id, student_id, exam_type)` rather than temporary room keys. Once assigned, they persist permanently across all future room keys, stops, restarts, and clear key operations.
 - **Mode 1: Common Questions (Default):** All unassigned students receive the complete common question bank in source order.
 - **Mode 2: Individual Assignment:** Teachers can select any student and assign a specific question (e.g., Question 5 only) or multiple questions (e.g., Questions 2, 5, 8).
 - **Replacement (Not Merged):** Individual assignments replace the common question set completely for that student.
+- **Bulk & 1-to-1 Distribution Tools:** Fast multi-student selection with Department and Section filtering, Bulk Assignment of selected questions, and 1-to-1 unique Question Distribution.
+- **Attempt Locking & Snapshots:** When an exam attempt starts, the effective question set is snapshotted into `exam_attempt_snapshots`. Mid-exam teacher modifications take effect on the student's *next* exam, guaranteeing active attempts are never altered mid-flight.
 - **Gap-Free Palette & Navigation:** Questions are numbered sequentially (1..N) in the student interface regardless of original database IDs, with zero gaps.
-- **Attempt Locking & Snapshots:** Once a student joins and starts their exam, their question set is permanently snapshotted and locked. Teachers cannot modify or reset an in-progress attempt.
 - **Dynamic Scorecards:** Maximum marks and percentages are dynamically computed strictly from the student's assigned questions.
-- **Strict Isolation:** Coding and MCQ assignments are strictly separated, and assignments belong strictly to a single examination instance key.
+- **Strict Isolation:** Coding and MCQ assignments are strictly separated with dedicated management subtabs.
 
 ### 2. 💻 Multi-Language Coding Examination Engine
 - **Supported Languages:** Python 3, C (GCC), and Java (OpenJDK).
@@ -66,7 +68,10 @@ The system operates on an optimized SQLite database (`exam_lab.db`) with Write-A
 | `test_cases` | Input, expected output, marks, and visibility per test case. |
 | `mcqs` | MCQ questions, 4 options, correct answer, and marks. |
 | `mcq_status` | Student MCQ selections and live grading results. |
-| `student_question_assignments` | Individual student question assignment mappings, attempt locks, and snapshots. |
+| `student_question_profiles` | Permanent question profiles per teacher, student, and exam type (`COMMON` or `INDIVIDUAL`). |
+| `student_question_profile_items` | Specific question IDs and ordering linked to a permanent profile. |
+| `exam_attempt_snapshots` | Immutable question snapshots frozen at student attempt start for zero mid-exam disruption. |
+| `student_question_assignments` | Backward-compatibility assignment mappings and room key session snapshots. |
 | `exam_state` | Active exam status, coding/MCQ access codes, duration, and start time. |
 | `exam_access` | Student participation state, violation counter, lock status, and final scores. |
 | `submissions` | Student final code submissions, test case pass counts, and live scores. |
@@ -149,14 +154,28 @@ To stop the cluster cleanly:
 
 All test suites run in strictly isolated temporary databases using synthetic test fixtures. Test executions never touch, alter, or expose production examination records or student passwords.
 
-### 1. Individual Question Assignment & Audit Matrix (21 Scenarios)
+### 1. Permanent Student-Based Question Assignment Suite (29 Scenarios)
+Verifies permanent persistence across unlimited room keys, clear keys, exam shutdowns, and application restarts; bulk assignments, 1-to-1 distribution, active attempt snapshot freeze, invalid assignment protection, cross-teacher ownership isolation, idempotency, and migration:
+```powershell
+.\.venv\Scripts\python.exe test_permanent_assignments.py
+```
+*Result: 14 Test Suites / 29 Scenarios Passed (100% Success).*
+
+### 2. Complete Anti-Cheat Lifecycle & Leave Confirmation Suite (13 Scenarios)
+Verifies continuous focus loss detection, Alt+Tab and visibility monitoring while confirmation modals are open, fullscreen exit detection, timer continuation, and safe finalization:
+```powershell
+.\.venv\Scripts\python.exe test_anticheat_lifecycle.py
+```
+*Result: 13/13 Scenarios Passed (100% Success).*
+
+### 3. Individual Question Assignment & Audit Matrix (21 Scenarios)
 Verifies common-mode attempt snapshots, explicit invalid assignment states (`COMMON`, `INDIVIDUAL`, `INVALID`), assignment API authorization and ownership validation, MCQ duplicate submission idempotency, backend independent code score calculation, attempt locking, cross-exam isolation, and result calculation:
 ```powershell
 .\.venv\Scripts\python.exe test_individual_question_assignment.py
 ```
 *Result: 7 Test Suites / 21 Scenarios Passed (100% Success).*
 
-### 2. Full System Regression & Buttons Audit (11 Suites)
+### 4. Full System Regression & Buttons Audit (11 Suites)
 Verifies authentication, question authoring, anti-cheat 5-strike locking, multi-language execution in sandboxed Windows Job Objects (Python, C, Java), live code inspection, plagiarism matching, time-over exit, and score downloads:
 ```powershell
 .\.venv\Scripts\python.exe test_all_buttons_and_backend.py
@@ -182,6 +201,8 @@ Verifies authentication, question authoring, anti-cheat 5-strike locking, multi-
 │   └── img/                              # College logo and assets
 ├── templates/
 │   └── index.html                        # Single-page application templates for all 3 roles
+├── test_permanent_assignments.py        # Permanent student question assignment 29-scenario test suite
+├── test_anticheat_lifecycle.py           # Anti-cheat focus detection & leave confirmation test suite
 ├── test_individual_question_assignment.py# Question assignment & audit verification suite
 └── test_all_buttons_and_backend.py       # Full system regression & buttons audit suite
 ```

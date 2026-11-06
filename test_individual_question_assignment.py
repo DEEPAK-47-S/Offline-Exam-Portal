@@ -303,9 +303,9 @@ class TestIndividualQuestionAssignment(unittest.TestCase):
         print("  -> [PASS] Test G: Backend rejected unassigned question requests with 403 Forbidden.")
 
         # -------------------------------------------------------------
-        # TEST H: Cross-Examination Isolation
+        # TEST H: Permanent Room Key Independence
         # -------------------------------------------------------------
-        print("\n[TEST H] Cross-Examination Isolation: Separate keys do not leak assignments")
+        print("\n[TEST H] Permanent Room Key Independence: Student retains permanent assignment across new room keys")
         exam_key_2 = "TEST_CODING_2"
         c = conn()
         c.execute("UPDATE exam_state SET access_code=? WHERE teacher_id=?", (exam_key_2, tid))
@@ -315,9 +315,10 @@ class TestIndividualQuestionAssignment(unittest.TestCase):
         self.login("test_studentB")
         self.client.post('/api/exam/join', json={'access_code': exam_key_2})
         exam2_q = self.client.get('/api/questions').get_json()
-        self.assertEqual(len(exam2_q), 10, "Student B must default to all 10 common questions in Exam 2")
+        self.assertEqual(len(exam2_q), 1, "Student B must retain permanent assignment across new room key in Exam 2")
+        self.assertEqual(exam2_q[0]['id'], q_ids[4], "Student B must still receive Question 5 in Exam 2")
         self.logout()
-        print("  -> [PASS] Test H: Exam 2 did not leak Exam 1's assignment; Student B received all 10 questions.")
+        print("  -> [PASS] Test H: Permanent assignment persisted across room key regeneration: Student B received Question 5 in Exam 2.")
 
         # -------------------------------------------------------------
         # TEST I: Attempt Locking

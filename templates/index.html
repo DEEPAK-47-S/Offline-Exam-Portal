@@ -288,7 +288,7 @@
         <button class="tab-btn btn btn-ghost" data-target="tab-students" onclick="showTab('tab-students')">Students</button>
         <button class="tab-btn btn btn-ghost" data-target="tab-activity" onclick="showTab('tab-activity')">Activity &amp; Leaderboard</button>
         <button class="tab-btn btn btn-ghost" data-target="tab-history" onclick="showTab('tab-history'); loadHistory();">History</button>
-        <button class="tab-btn btn btn-ghost" data-target="tab-assignments" onclick="showTab('tab-assignments'); loadAssignmentsUI('teacher');">Question Assignment</button>
+        <button class="tab-btn btn btn-ghost" data-target="tab-assignments" onclick="showTab('tab-assignments'); loadPermanentAssignmentsUI('teacher');">Permanent Question Assignment</button>
       </div>
 
       <div class="tab-content-area" style="width: 100%;">
@@ -434,84 +434,151 @@
           </div>
         </section>
 
-        <!-- Individual Student Question Assignment Tab (Teacher) -->
+        <!-- Permanent Student Question Assignment Tab (Teacher) -->
         <section id="tab-assignments" class="glass panel portal-tab-content" style="display:none;">
           <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px; margin-bottom:20px;">
             <div>
-              <h2 style="margin:0; font-size:1.35rem; font-weight:700;">Individual Student Question Assignment</h2>
-              <p style="margin:4px 0 0 0; color:var(--text-2); font-size:0.88rem;">Customize question sets for specific students. Unassigned students receive all common questions.</p>
+              <div style="display:flex; align-items:center; gap:10px;">
+                <h2 style="margin:0; font-size:1.35rem; font-weight:700;">Permanent Student Question Assignments</h2>
+                <span style="font-size:0.75rem; font-weight:800; background:linear-gradient(135deg, var(--accent-1), var(--accent-2)); color:#fff; padding:3px 10px; border-radius:999px; text-transform:uppercase; letter-spacing:0.05em;">Persistent System</span>
+              </div>
+              <p style="margin:4px 0 0 0; color:var(--text-2); font-size:0.88rem;">
+                Assign specific questions to individual students permanently. Assignments persist across all future room keys, exam sessions, and server restarts. Unassigned students receive all common questions.
+              </p>
             </div>
             <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
-              <select id="assignmentExamSelect" onchange="onAssignmentExamChange('teacher')" style="padding:8px 12px; border-radius:10px; background:var(--bg-1); color:var(--text-0); border:1px solid var(--glass-border); font-weight:600; min-width:260px;"></select>
-              <button type="button" class="btn btn-ghost" onclick="loadAssignmentsUI('teacher')" style="padding:8px 14px;">🔄 Refresh</button>
+              <button type="button" class="btn btn-ghost" onclick="loadPermanentAssignmentsUI('teacher')" style="padding:8px 14px;">🔄 Refresh</button>
             </div>
           </div>
 
-          <!-- Assignment Editor Card -->
-          <div class="glass panel" style="background:var(--bg-1, rgba(255,255,255,0.03)); border:1px solid var(--glass-border); border-radius:14px; padding:20px; margin-bottom:24px;">
-            <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap:16px; margin-bottom:18px;">
-              <div>
-                <label style="font-size:0.82rem; font-weight:700; color:var(--text-2); display:block; margin-bottom:6px;">SELECT STUDENT</label>
-                <select id="assignmentStudentSelect" onchange="onAssignmentStudentChange('teacher')" style="width:100%; padding:10px 12px; border-radius:10px; background:var(--bg-0); color:var(--text-0); border:1px solid var(--glass-border); font-size:0.95rem; font-weight:600;"></select>
-              </div>
-              <div>
-                <label style="font-size:0.82rem; font-weight:700; color:var(--text-2); display:block; margin-bottom:6px;">EXAMINATION SUMMARY</label>
-                <div id="assignmentExamSummary" style="padding:10px 12px; border-radius:10px; background:var(--bg-0); border:1px solid var(--glass-border); font-size:0.88rem; color:var(--text-1); min-height:42px; display:flex; align-items:center;">
-                  Select an examination to view questions.
-                </div>
-              </div>
-            </div>
-
-            <!-- Questions Selection Box -->
-            <div style="margin-bottom:18px;">
-              <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
-                <div style="display:flex; align-items:center; gap:12px;">
-                  <b style="font-size:0.92rem; color:var(--text-0);">Available Questions:</b>
-                  <span id="assignmentSelectedCount" style="font-size:0.85rem; font-weight:700; color:var(--accent-1); background:rgba(13,148,136,0.15); padding:2px 10px; border-radius:999px;">0 Selected</span>
-                </div>
-                <div style="display:flex; gap:8px;">
-                  <button type="button" class="btn btn-ghost" onclick="assignmentSelectAll(true, 'teacher')" style="padding:5px 12px; font-size:0.82rem;">Select All</button>
-                  <button type="button" class="btn btn-ghost" onclick="assignmentSelectAll(false, 'teacher')" style="padding:5px 12px; font-size:0.82rem;">Clear Selection</button>
-                </div>
-              </div>
-              <div id="assignmentQuestionsList" style="max-height:280px; overflow-y:auto; border:1px solid var(--glass-border); border-radius:10px; padding:12px; background:var(--bg-0); display:flex; flex-direction:column; gap:8px;">
-                <div style="color:var(--text-2); font-size:0.88rem; text-align:center; padding:20px;">Select a student and exam above.</div>
-              </div>
-            </div>
-
-            <!-- Action Buttons -->
-            <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px;">
-              <div style="display:flex; gap:10px;">
-                <button type="button" id="assignmentSaveBtn" class="btn btn-primary" onclick="saveIndividualAssignment('teacher')" style="padding:10px 22px; font-weight:700;">💾 Save Individual Assignment</button>
-                <button type="button" id="assignmentResetBtn" class="btn btn-ghost" onclick="resetIndividualAssignment('teacher')" style="padding:10px 18px; color:var(--danger); border-color:var(--danger);">↺ Reset to Common Questions</button>
-              </div>
-              <div id="assignmentStatusNotice" style="font-size:0.85rem; font-weight:600; color:var(--text-2);"></div>
-            </div>
+          <!-- Exam Type Sub-Tabs -->
+          <div style="display:flex; gap:8px; border-bottom:1px solid var(--glass-border); padding-bottom:12px; margin-bottom:20px;">
+            <button type="button" id="permTabBtn-coding" class="btn btn-primary" onclick="switchPermanentExamType('coding', 'teacher')" style="padding:8px 18px; font-weight:700;">
+              💻 Coding Assignments
+            </button>
+            <button type="button" id="permTabBtn-mcq" class="btn btn-ghost" onclick="switchPermanentExamType('mcq', 'teacher')" style="padding:8px 18px; font-weight:700;">
+              📝 MCQ Assignments
+            </button>
           </div>
 
-          <!-- Assignment Management Overview Table -->
+          <!-- Main Assignment Builder Grid (2 Columns) -->
+          <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(360px, 1fr)); gap:20px; margin-bottom:20px;">
+            
+            <!-- Left Panel: Step 1 - Select Students -->
+            <div class="glass panel" style="background:var(--bg-1, rgba(255,255,255,0.03)); border:1px solid var(--glass-border); border-radius:14px; padding:18px; display:flex; flex-direction:column; gap:12px;">
+              <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;">
+                <div>
+                  <b style="font-size:0.95rem; color:var(--text-0);">1. Select Student(s)</b>
+                  <span id="permSelectedStudentsCount" style="margin-left:8px; font-size:0.8rem; font-weight:700; color:var(--accent-1); background:rgba(13,148,136,0.15); padding:2px 8px; border-radius:999px;">0 Selected</span>
+                </div>
+                <div style="display:flex; gap:6px;">
+                  <button type="button" class="btn btn-ghost" onclick="permSelectAllStudents(true, 'teacher')" style="padding:4px 10px; font-size:0.8rem;">Select All</button>
+                  <button type="button" class="btn btn-ghost" onclick="permSelectAllStudents(false, 'teacher')" style="padding:4px 10px; font-size:0.8rem;">Clear</button>
+                </div>
+              </div>
+
+              <!-- Student Filters -->
+              <div style="display:grid; grid-template-columns: 1fr 1fr; gap:8px;">
+                <input id="permStudentSearch" oninput="filterPermanentStudentsList('teacher')" placeholder="🔍 Search name, reg no..." style="grid-column: span 2; padding:8px 12px; border-radius:8px; border:1px solid var(--glass-border); background:var(--bg-0); color:var(--text-0); font-size:0.85rem;">
+                <select id="permDeptFilter" onchange="filterPermanentStudentsList('teacher')" style="padding:6px 10px; border-radius:8px; border:1px solid var(--glass-border); background:var(--bg-0); color:var(--text-0); font-size:0.82rem;">
+                  <option value="">All Departments</option>
+                </select>
+                <select id="permSectionFilter" onchange="filterPermanentStudentsList('teacher')" style="padding:6px 10px; border-radius:8px; border:1px solid var(--glass-border); background:var(--bg-0); color:var(--text-0); font-size:0.82rem;">
+                  <option value="">All Sections</option>
+                </select>
+              </div>
+
+              <!-- Students Scrollable Checklist -->
+              <div id="permStudentsList" style="max-height:280px; overflow-y:auto; border:1px solid var(--glass-border); border-radius:10px; padding:10px; background:var(--bg-0); display:flex; flex-direction:column; gap:6px;">
+                <div style="color:var(--text-2); font-size:0.88rem; text-align:center; padding:20px;">Loading students...</div>
+              </div>
+            </div>
+
+            <!-- Right Panel: Step 2 - Select Questions -->
+            <div class="glass panel" style="background:var(--bg-1, rgba(255,255,255,0.03)); border:1px solid var(--glass-border); border-radius:14px; padding:18px; display:flex; flex-direction:column; gap:12px;">
+              <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;">
+                <div>
+                  <b style="font-size:0.95rem; color:var(--text-0);">2. Select Question(s) to Assign</b>
+                  <span id="permSelectedQuestionsCount" style="margin-left:8px; font-size:0.8rem; font-weight:700; color:var(--accent-1); background:rgba(13,148,136,0.15); padding:2px 8px; border-radius:999px;">0 Selected</span>
+                </div>
+                <div style="display:flex; gap:6px;">
+                  <button type="button" class="btn btn-ghost" onclick="permSelectAllQuestions(true, 'teacher')" style="padding:4px 10px; font-size:0.8rem;">Select All</button>
+                  <button type="button" class="btn btn-ghost" onclick="permSelectAllQuestions(false, 'teacher')" style="padding:4px 10px; font-size:0.8rem;">Clear</button>
+                </div>
+              </div>
+
+              <!-- Question Filter -->
+              <input id="permQuestionSearch" oninput="filterPermanentQuestionsList('teacher')" placeholder="🔍 Search questions by title, marks, ID..." style="padding:8px 12px; border-radius:8px; border:1px solid var(--glass-border); background:var(--bg-0); color:var(--text-0); font-size:0.85rem;">
+
+              <!-- Questions Scrollable Checklist -->
+              <div id="permQuestionsList" style="max-height:280px; overflow-y:auto; border:1px solid var(--glass-border); border-radius:10px; padding:10px; background:var(--bg-0); display:flex; flex-direction:column; gap:6px;">
+                <div style="color:var(--text-2); font-size:0.88rem; text-align:center; padding:20px;">Loading questions...</div>
+              </div>
+            </div>
+
+          </div>
+
+          <!-- Operations Toolbar -->
+          <div class="glass panel" style="background:var(--bg-1, rgba(255,255,255,0.03)); border:1px solid var(--glass-border); border-radius:14px; padding:16px 20px; margin-bottom:24px; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:14px;">
+            <div style="display:flex; gap:10px; flex-wrap:wrap;">
+              <button type="button" id="permBulkAssignBtn" class="btn btn-primary" onclick="permApplyBulkAssignment('teacher')" style="padding:10px 22px; font-weight:700;">
+                ⚡ Assign Selected Questions to Selected Student(s)
+              </button>
+              <button type="button" id="permDistributeBtn" class="btn btn-ghost" onclick="permDistributeQuestions('teacher')" style="padding:10px 18px; font-weight:700; color:var(--accent-1); border-color:var(--accent-1);" title="Maps 1 question to 1 student in order when counts match">
+                🔀 Distribute 1 Question Per Student
+              </button>
+              <button type="button" id="permBulkResetBtn" class="btn btn-ghost" onclick="permApplyBulkReset('teacher')" style="padding:10px 18px; color:var(--danger); border-color:var(--danger); font-weight:600;">
+                ↺ Reset Selected to Common Questions
+              </button>
+            </div>
+            <div id="permActionStatus" style="font-size:0.85rem; font-weight:600; color:var(--text-2);"></div>
+          </div>
+
+          <!-- Individual Assignment Matrix Table -->
           <div style="margin-top:20px;">
             <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; flex-wrap:wrap; gap:10px;">
-              <h3 style="margin:0; font-size:1.1rem; font-weight:700;">Student Assignment Overview</h3>
-              <input id="assignmentTableSearch" oninput="filterAssignmentOverviewTable('teacher')" placeholder="🔍 Search student by name, reg no, dept..." style="padding:8px 14px; border-radius:10px; border:1px solid var(--glass-border); background:var(--bg-1); color:var(--text-0); font-size:0.88rem; width:280px;">
+              <div>
+                <h3 style="margin:0; font-size:1.15rem; font-weight:700;">Permanent Student Assignment Matrix</h3>
+                <p style="margin:2px 0 0 0; color:var(--text-2); font-size:0.82rem;">Overview of individual configurations across all students. Click 'Edit' on any row to configure that student.</p>
+              </div>
+              <div style="display:flex; gap:8px;">
+                <input id="permOverviewSearch" oninput="filterPermanentOverviewTable('teacher')" placeholder="🔍 Filter matrix by student, reg no, dept..." style="padding:8px 14px; border-radius:10px; border:1px solid var(--glass-border); background:var(--bg-1); color:var(--text-0); font-size:0.88rem; width:280px;">
+              </div>
             </div>
             <div style="border-radius:12px; border:1px solid var(--glass-border); overflow-x:auto;">
-              <table class="data-table" style="width:100%; min-width:800px; text-align:left;">
+              <table class="data-table" style="width:100%; min-width:850px; text-align:left;">
                 <thead>
                   <tr>
+                    <th style="padding:12px 14px; width:40px;"><input type="checkbox" id="permSelectAllMatrixCheckbox" onchange="permToggleMatrixCheckboxes(this.checked, 'teacher')"></th>
                     <th style="padding:12px 14px;">Student</th>
                     <th style="padding:12px 14px;">Reg No</th>
                     <th style="padding:12px 14px;">Dept / Section</th>
+                    <th style="padding:12px 14px;">Exam Type</th>
                     <th style="padding:12px 14px;">Assignment Mode</th>
                     <th style="padding:12px 14px;">Assigned Questions</th>
+                    <th style="padding:12px 14px;">Version</th>
                     <th style="padding:12px 14px; text-align:right;">Actions</th>
                   </tr>
                 </thead>
-                <tbody id="assignmentOverviewTableBody">
-                  <tr><td colspan="6" style="text-align:center; padding:20px; color:var(--text-2);">Loading assignments...</td></tr>
+                <tbody id="permOverviewTableBody">
+                  <tr><td colspan="9" style="text-align:center; padding:20px; color:var(--text-2);">Loading permanent assignment matrix...</td></tr>
                 </tbody>
               </table>
             </div>
+          </div>
+
+          <!-- Hidden Compatibility Fallbacks for Legacy Scripts -->
+          <div style="display:none;">
+            <select id="assignmentExamSelect"></select>
+            <select id="assignmentStudentSelect"></select>
+            <div id="assignmentExamSummary"></div>
+            <div id="assignmentQuestionsList"></div>
+            <span id="assignmentSelectedCount"></span>
+            <button id="assignmentSaveBtn"></button>
+            <button id="assignmentResetBtn"></button>
+            <div id="assignmentStatusNotice"></div>
+            <input id="assignmentTableSearch">
+            <table><tbody id="assignmentOverviewTableBody"></tbody></table>
           </div>
         </section>
 
@@ -544,7 +611,7 @@
         <button class="tab-btn btn btn-ghost" data-target="tab-admin-students" onclick="showTab('tab-admin-students')">Manage Students</button>
         <button class="tab-btn btn btn-ghost" data-target="tab-admin-activity" onclick="showTab('tab-admin-activity')">Activity &amp; Leaderboard</button>
         <button class="tab-btn btn btn-ghost" data-target="tab-admin-history" onclick="showTab('tab-admin-history'); loadAdminHistory();">History</button>
-        <button class="tab-btn btn btn-ghost" data-target="tab-admin-assignments" onclick="showTab('tab-admin-assignments'); loadAssignmentsUI('admin');">Question Assignment</button>
+        <button class="tab-btn btn btn-ghost" data-target="tab-admin-assignments" onclick="showTab('tab-admin-assignments'); loadPermanentAssignmentsUI('admin');">Permanent Question Assignment</button>
       </div>
 
       <div class="tab-content-area" style="width: 100%;">
@@ -645,80 +712,150 @@
           </div>
         </section>
 
-        <!-- Individual Student Question Assignment Tab (Admin) -->
+        <!-- Permanent Student Question Assignment Tab (Admin) -->
         <section id="tab-admin-assignments" class="glass panel portal-tab-content" style="display:none;">
           <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px; margin-bottom:20px;">
             <div>
-              <h2 style="margin:0; font-size:1.35rem; font-weight:700;">Individual Student Question Assignment (Admin)</h2>
-              <p style="margin:4px 0 0 0; color:var(--text-2); font-size:0.88rem;">Manage individual question assignments across any teacher and examination.</p>
+              <div style="display:flex; align-items:center; gap:10px;">
+                <h2 style="margin:0; font-size:1.35rem; font-weight:700;">Permanent Student Question Assignments (Admin)</h2>
+                <span style="font-size:0.75rem; font-weight:800; background:linear-gradient(135deg, var(--accent-1), var(--accent-2)); color:#fff; padding:3px 10px; border-radius:999px; text-transform:uppercase; letter-spacing:0.05em;">Admin Control</span>
+              </div>
+              <p style="margin:4px 0 0 0; color:var(--text-2); font-size:0.88rem;">Manage persistent question assignments across all teachers and examination types.</p>
             </div>
             <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
-              <select id="adminAssignmentExamSelect" onchange="onAssignmentExamChange('admin')" style="padding:8px 12px; border-radius:10px; background:var(--bg-1); color:var(--text-0); border:1px solid var(--glass-border); font-weight:600; min-width:320px;"></select>
-              <button type="button" class="btn btn-ghost" onclick="loadAssignmentsUI('admin')" style="padding:8px 14px;">🔄 Refresh</button>
+              <select id="permAdminTeacherSelect" onchange="onPermAdminTeacherChange()" style="padding:8px 12px; border-radius:10px; background:var(--bg-1); color:var(--text-0); border:1px solid var(--glass-border); font-weight:600; min-width:240px;"></select>
+              <button type="button" class="btn btn-ghost" onclick="loadPermanentAssignmentsUI('admin')" style="padding:8px 14px;">🔄 Refresh</button>
             </div>
           </div>
 
-          <div class="glass panel" style="background:var(--bg-1, rgba(255,255,255,0.03)); border:1px solid var(--glass-border); border-radius:14px; padding:20px; margin-bottom:24px;">
-            <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap:16px; margin-bottom:18px;">
-              <div>
-                <label style="font-size:0.82rem; font-weight:700; color:var(--text-2); display:block; margin-bottom:6px;">SELECT STUDENT</label>
-                <select id="adminAssignmentStudentSelect" onchange="onAssignmentStudentChange('admin')" style="width:100%; padding:10px 12px; border-radius:10px; background:var(--bg-0); color:var(--text-0); border:1px solid var(--glass-border); font-size:0.95rem; font-weight:600;"></select>
-              </div>
-              <div>
-                <label style="font-size:0.82rem; font-weight:700; color:var(--text-2); display:block; margin-bottom:6px;">EXAMINATION SUMMARY</label>
-                <div id="adminAssignmentExamSummary" style="padding:10px 12px; border-radius:10px; background:var(--bg-0); border:1px solid var(--glass-border); font-size:0.88rem; color:var(--text-1); min-height:42px; display:flex; align-items:center;">
-                  Select an examination to view questions.
-                </div>
-              </div>
-            </div>
-
-            <div style="margin-bottom:18px;">
-              <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
-                <div style="display:flex; align-items:center; gap:12px;">
-                  <b style="font-size:0.92rem; color:var(--text-0);">Available Questions:</b>
-                  <span id="adminAssignmentSelectedCount" style="font-size:0.85rem; font-weight:700; color:var(--accent-1); background:rgba(13,148,136,0.15); padding:2px 10px; border-radius:999px;">0 Selected</span>
-                </div>
-                <div style="display:flex; gap:8px;">
-                  <button type="button" class="btn btn-ghost" onclick="assignmentSelectAll(true, 'admin')" style="padding:5px 12px; font-size:0.82rem;">Select All</button>
-                  <button type="button" class="btn btn-ghost" onclick="assignmentSelectAll(false, 'admin')" style="padding:5px 12px; font-size:0.82rem;">Clear Selection</button>
-                </div>
-              </div>
-              <div id="adminAssignmentQuestionsList" style="max-height:280px; overflow-y:auto; border:1px solid var(--glass-border); border-radius:10px; padding:12px; background:var(--bg-0); display:flex; flex-direction:column; gap:8px;">
-                <div style="color:var(--text-2); font-size:0.88rem; text-align:center; padding:20px;">Select a student and exam above.</div>
-              </div>
-            </div>
-
-            <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px;">
-              <div style="display:flex; gap:10px;">
-                <button type="button" id="adminAssignmentSaveBtn" class="btn btn-primary" onclick="saveIndividualAssignment('admin')" style="padding:10px 22px; font-weight:700;">💾 Save Individual Assignment</button>
-                <button type="button" id="adminAssignmentResetBtn" class="btn btn-ghost" onclick="resetIndividualAssignment('admin')" style="padding:10px 18px; color:var(--danger); border-color:var(--danger);">↺ Reset to Common Questions</button>
-              </div>
-              <div id="adminAssignmentStatusNotice" style="font-size:0.85rem; font-weight:600; color:var(--text-2);"></div>
-            </div>
+          <!-- Exam Type Sub-Tabs -->
+          <div style="display:flex; gap:8px; border-bottom:1px solid var(--glass-border); padding-bottom:12px; margin-bottom:20px;">
+            <button type="button" id="permAdminTabBtn-coding" class="btn btn-primary" onclick="switchPermanentExamType('coding', 'admin')" style="padding:8px 18px; font-weight:700;">
+              💻 Coding Assignments
+            </button>
+            <button type="button" id="permAdminTabBtn-mcq" class="btn btn-ghost" onclick="switchPermanentExamType('mcq', 'admin')" style="padding:8px 18px; font-weight:700;">
+              📝 MCQ Assignments
+            </button>
           </div>
 
+          <!-- Main Assignment Builder Grid (2 Columns) -->
+          <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(360px, 1fr)); gap:20px; margin-bottom:20px;">
+            
+            <!-- Left Panel: Step 1 - Select Students -->
+            <div class="glass panel" style="background:var(--bg-1, rgba(255,255,255,0.03)); border:1px solid var(--glass-border); border-radius:14px; padding:18px; display:flex; flex-direction:column; gap:12px;">
+              <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;">
+                <div>
+                  <b style="font-size:0.95rem; color:var(--text-0);">1. Select Student(s)</b>
+                  <span id="permAdminSelectedStudentsCount" style="margin-left:8px; font-size:0.8rem; font-weight:700; color:var(--accent-1); background:rgba(13,148,136,0.15); padding:2px 8px; border-radius:999px;">0 Selected</span>
+                </div>
+                <div style="display:flex; gap:6px;">
+                  <button type="button" class="btn btn-ghost" onclick="permSelectAllStudents(true, 'admin')" style="padding:4px 10px; font-size:0.8rem;">Select All</button>
+                  <button type="button" class="btn btn-ghost" onclick="permSelectAllStudents(false, 'admin')" style="padding:4px 10px; font-size:0.8rem;">Clear</button>
+                </div>
+              </div>
+
+              <!-- Student Filters -->
+              <div style="display:grid; grid-template-columns: 1fr 1fr; gap:8px;">
+                <input id="permAdminStudentSearch" oninput="filterPermanentStudentsList('admin')" placeholder="🔍 Search name, reg no..." style="grid-column: span 2; padding:8px 12px; border-radius:8px; border:1px solid var(--glass-border); background:var(--bg-0); color:var(--text-0); font-size:0.85rem;">
+                <select id="permAdminDeptFilter" onchange="filterPermanentStudentsList('admin')" style="padding:6px 10px; border-radius:8px; border:1px solid var(--glass-border); background:var(--bg-0); color:var(--text-0); font-size:0.82rem;">
+                  <option value="">All Departments</option>
+                </select>
+                <select id="permAdminSectionFilter" onchange="filterPermanentStudentsList('admin')" style="padding:6px 10px; border-radius:8px; border:1px solid var(--glass-border); background:var(--bg-0); color:var(--text-0); font-size:0.82rem;">
+                  <option value="">All Sections</option>
+                </select>
+              </div>
+
+              <!-- Students Scrollable Checklist -->
+              <div id="permAdminStudentsList" style="max-height:280px; overflow-y:auto; border:1px solid var(--glass-border); border-radius:10px; padding:10px; background:var(--bg-0); display:flex; flex-direction:column; gap:6px;">
+                <div style="color:var(--text-2); font-size:0.88rem; text-align:center; padding:20px;">Loading students...</div>
+              </div>
+            </div>
+
+            <!-- Right Panel: Step 2 - Select Questions -->
+            <div class="glass panel" style="background:var(--bg-1, rgba(255,255,255,0.03)); border:1px solid var(--glass-border); border-radius:14px; padding:18px; display:flex; flex-direction:column; gap:12px;">
+              <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;">
+                <div>
+                  <b style="font-size:0.95rem; color:var(--text-0);">2. Select Question(s) to Assign</b>
+                  <span id="permAdminSelectedQuestionsCount" style="margin-left:8px; font-size:0.8rem; font-weight:700; color:var(--accent-1); background:rgba(13,148,136,0.15); padding:2px 8px; border-radius:999px;">0 Selected</span>
+                </div>
+                <div style="display:flex; gap:6px;">
+                  <button type="button" class="btn btn-ghost" onclick="permSelectAllQuestions(true, 'admin')" style="padding:4px 10px; font-size:0.8rem;">Select All</button>
+                  <button type="button" class="btn btn-ghost" onclick="permSelectAllQuestions(false, 'admin')" style="padding:4px 10px; font-size:0.8rem;">Clear</button>
+                </div>
+              </div>
+
+              <!-- Question Filter -->
+              <input id="permAdminQuestionSearch" oninput="filterPermanentQuestionsList('admin')" placeholder="🔍 Search questions by title, marks, ID..." style="padding:8px 12px; border-radius:8px; border:1px solid var(--glass-border); background:var(--bg-0); color:var(--text-0); font-size:0.85rem;">
+
+              <!-- Questions Scrollable Checklist -->
+              <div id="permAdminQuestionsList" style="max-height:280px; overflow-y:auto; border:1px solid var(--glass-border); border-radius:10px; padding:10px; background:var(--bg-0); display:flex; flex-direction:column; gap:6px;">
+                <div style="color:var(--text-2); font-size:0.88rem; text-align:center; padding:20px;">Loading questions...</div>
+              </div>
+            </div>
+
+          </div>
+
+          <!-- Operations Toolbar -->
+          <div class="glass panel" style="background:var(--bg-1, rgba(255,255,255,0.03)); border:1px solid var(--glass-border); border-radius:14px; padding:16px 20px; margin-bottom:24px; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:14px;">
+            <div style="display:flex; gap:10px; flex-wrap:wrap;">
+              <button type="button" id="permAdminBulkAssignBtn" class="btn btn-primary" onclick="permApplyBulkAssignment('admin')" style="padding:10px 22px; font-weight:700;">
+                ⚡ Assign Selected Questions to Selected Student(s)
+              </button>
+              <button type="button" id="permAdminDistributeBtn" class="btn btn-ghost" onclick="permDistributeQuestions('admin')" style="padding:10px 18px; font-weight:700; color:var(--accent-1); border-color:var(--accent-1);" title="Maps 1 question to 1 student in order when counts match">
+                🔀 Distribute 1 Question Per Student
+              </button>
+              <button type="button" id="permAdminBulkResetBtn" class="btn btn-ghost" onclick="permApplyBulkReset('admin')" style="padding:10px 18px; color:var(--danger); border-color:var(--danger); font-weight:600;">
+                ↺ Reset Selected to Common Questions
+              </button>
+            </div>
+            <div id="permAdminActionStatus" style="font-size:0.85rem; font-weight:600; color:var(--text-2);"></div>
+          </div>
+
+          <!-- Individual Assignment Matrix Table -->
           <div style="margin-top:20px;">
             <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; flex-wrap:wrap; gap:10px;">
-              <h3 style="margin:0; font-size:1.1rem; font-weight:700;">Student Assignment Overview</h3>
-              <input id="adminAssignmentTableSearch" oninput="filterAssignmentOverviewTable('admin')" placeholder="🔍 Search student by name, reg no, dept..." style="padding:8px 14px; border-radius:10px; border:1px solid var(--glass-border); background:var(--bg-1); color:var(--text-0); font-size:0.88rem; width:280px;">
+              <div>
+                <h3 style="margin:0; font-size:1.15rem; font-weight:700;">Permanent Student Assignment Matrix</h3>
+                <p style="margin:2px 0 0 0; color:var(--text-2); font-size:0.82rem;">Overview of individual configurations across all students. Click 'Edit' on any row to configure that student.</p>
+              </div>
+              <div style="display:flex; gap:8px;">
+                <input id="permAdminOverviewSearch" oninput="filterPermanentOverviewTable('admin')" placeholder="🔍 Filter matrix by student, reg no, dept..." style="padding:8px 14px; border-radius:10px; border:1px solid var(--glass-border); background:var(--bg-1); color:var(--text-0); font-size:0.88rem; width:280px;">
+              </div>
             </div>
             <div style="border-radius:12px; border:1px solid var(--glass-border); overflow-x:auto;">
-              <table class="data-table" style="width:100%; min-width:800px; text-align:left;">
+              <table class="data-table" style="width:100%; min-width:850px; text-align:left;">
                 <thead>
                   <tr>
+                    <th style="padding:12px 14px; width:40px;"><input type="checkbox" id="permAdminSelectAllMatrixCheckbox" onchange="permToggleMatrixCheckboxes(this.checked, 'admin')"></th>
                     <th style="padding:12px 14px;">Student</th>
                     <th style="padding:12px 14px;">Reg No</th>
                     <th style="padding:12px 14px;">Dept / Section</th>
+                    <th style="padding:12px 14px;">Exam Type</th>
                     <th style="padding:12px 14px;">Assignment Mode</th>
                     <th style="padding:12px 14px;">Assigned Questions</th>
+                    <th style="padding:12px 14px;">Version</th>
                     <th style="padding:12px 14px; text-align:right;">Actions</th>
                   </tr>
                 </thead>
-                <tbody id="adminAssignmentOverviewTableBody">
-                  <tr><td colspan="6" style="text-align:center; padding:20px; color:var(--text-2);">Loading assignments...</td></tr>
+                <tbody id="permAdminOverviewTableBody">
+                  <tr><td colspan="9" style="text-align:center; padding:20px; color:var(--text-2);">Loading permanent assignment matrix...</td></tr>
                 </tbody>
               </table>
             </div>
+          </div>
+
+          <!-- Hidden Compatibility Fallbacks for Legacy Scripts -->
+          <div style="display:none;">
+            <select id="adminAssignmentExamSelect"></select>
+            <select id="adminAssignmentStudentSelect"></select>
+            <div id="adminAssignmentExamSummary"></div>
+            <div id="adminAssignmentQuestionsList"></div>
+            <span id="adminAssignmentSelectedCount"></span>
+            <button id="adminAssignmentSaveBtn"></button>
+            <button id="adminAssignmentResetBtn"></button>
+            <div id="adminAssignmentStatusNotice"></div>
+            <input id="adminAssignmentTableSearch">
+            <table><tbody id="adminAssignmentOverviewTableBody"></tbody></table>
           </div>
         </section>
       </div>
