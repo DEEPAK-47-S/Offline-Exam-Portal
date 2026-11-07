@@ -1378,18 +1378,26 @@ function runCode() {
   bindTerminal();
   const socket = new WebSocket((location.protocol === "https:" ? "wss" : "ws") + "://" + location.host + "/ws/run");
   ws = socket;
-  socket.onopen = () => socket.send(JSON.stringify({action: "start", language: $("#language").value, code: code.value}));
+  const currentQ = (questions || []).find((item) => String(item.id) === $("#questionSelect")?.value);
+  const qid = currentQ ? currentQ.id : (_currentQuestionId || ($("#questionSelect") ? $("#questionSelect").value : null));
+  socket.onopen = () => socket.send(JSON.stringify({
+    action: "start",
+    question_id: qid ? Number(qid) : null,
+    language: $("#language").value,
+    code: code.value
+  }));
   socket.onmessage = (event) => {
     const msg = JSON.parse(event.data);
-    if (msg.data) writeTerminal(msg.data);
     if (msg.type === "compile_error") {
       running = false;
       $("#status").textContent = "COMPILE ERROR";
-      writeTerminal(msg.data);
+      writeTerminal(msg.data || "Compilation Error");
       live.contentEditable = "false";
       ws = null;
       socket.close();
+      return;
     }
+    if (msg.data) writeTerminal(msg.data);
     if (msg.type === "exit") {
       running = false;
       $("#status").textContent = `EXIT ${msg.code} - ${msg.time_ms} ms`;

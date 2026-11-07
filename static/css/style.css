@@ -1178,89 +1178,56 @@ option { background-color: var(--bg-0); color: var(--text-0); }
 /* ══════════════════════════════════════════════════════════
    Global Sticky Developer Watermark Badge
    ══════════════════════════════════════════════════════════ */
+/* ==========================================================
+   Global Sticky Developer Watermark Badge
+   ========================================================== */
 .developer-watermark {
-  margin: 40px auto 16px auto;
-  text-align: center;
-  pointer-events: none;
+  position: fixed;
+  bottom: 12px;
+  right: 16px;
+  z-index: 9999;
+  pointer-events: none !important;
   user-select: none;
   display: flex;
   align-items: center;
-  justify-content: center;
   gap: 8px;
-  padding: 6px 16px;
-  width: fit-content;
-  background: var(--glass-fill);
-  border: 1px solid var(--glass-border);
-  border-radius: 20px;
+  padding: 5px 12px;
+  background: rgba(15, 23, 42, 0.78);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 10px;
   backdrop-filter: blur(8px);
-  z-index: 10;
+  -webkit-backdrop-filter: blur(8px);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.25);
+  font-family: inherit;
+  white-space: nowrap;
 }
 
 [data-theme="light"] .developer-watermark {
-  background: rgba(255, 255, 255, 0.7);
-  border: 1px solid rgba(0, 0, 0, 0.08);
+  background: rgba(255, 255, 255, 0.88);
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.1);
 }
 
 .developer-watermark small {
-  font-size: 0.75rem;
-  font-weight: 500;
-  color: var(--text-2);
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--text-2, #94a3b8);
+  display: inline;
 }
 
 .developer-watermark h3 {
   margin: 0;
-  font-size: 0.82rem;
+  font-size: 0.80rem;
   font-weight: 800;
-  letter-spacing: 0.5px;
-  color: var(--accent-1);
-}
-
-#student:not(.hidden) ~ #developerWatermark,
-#student-mcq:not(.hidden) ~ #developerWatermark {
-  display: none !important;
-}
-
-[data-theme="light"] .developer-watermark {
-  background: rgba(255, 255, 255, 0.82);
-  border: 1px solid rgba(0, 0, 0, 0.1);
-  box-shadow: 0 2px 10px rgba(30, 50, 100, 0.1);
-}
-
-.developer-watermark small {
-  display: inline;
-  font-size: 0.70rem;
-  font-weight: 500;
-  color: var(--text-2, #94a3b8);
-}
-
-.developer-watermark h3 {
-  display: inline;
-  margin: 0 0 0 4px;
-  font-size: 0.76rem;
-  font-weight: 700;
   letter-spacing: 0.4px;
   color: var(--accent-1, #0d9488);
+  display: inline;
 }
 
 [data-theme="light"] .developer-watermark h3 {
   color: var(--accent-blue, #1c4f8a);
 }
 
-/* Never overlay active student exam workspace or test results */
-#student:not(.hidden) ~ #developerWatermark,
-#student-mcq:not(.hidden) ~ #developerWatermark {
-  display: none !important;
-}
-
-@media (max-width: 900px) {
-  .developer-watermark {
-    display: none !important;
-  }
-}
-
-/* ==========================================================================
-   FEATURE 4: QUESTION NAVIGATION PALETTE & REVIEW STYLES
-   ========================================================================== */
 .question-palette-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(36px, 1fr));

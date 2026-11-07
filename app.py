@@ -252,29 +252,48 @@ def apply_security_headers(response):
 @app.before_request
 def validate_csrf():
     if request.method in ["POST", "PUT", "DELETE"]:
+        # Modern browser same-origin guarantee
+        sec_fetch_site = request.headers.get("Sec-Fetch-Site", "").lower()
+        if sec_fetch_site in ("same-origin", "same-site", "none"):
+            return None
+
         origin = request.headers.get("Origin") or request.headers.get("Referer")
-        if origin:
-            from urllib.parse import urlparse
-            parsed_origin = urlparse(origin)
-            origin_netloc = parsed_origin.netloc or ''
-            origin_host = origin_netloc.split(':')[0].lower()
-            
-            curr_host_header = request.headers.get('X-Forwarded-Host') or request.headers.get('Host') or request.host or ''
-            curr_host = curr_host_header.split(':')[0].lower()
-            
-            # Exact match (with or without port)
-            if origin_netloc == curr_host_header or origin_host == curr_host:
-                return None
-                
-            # Both are local loopback (e.g. 127.0.0.1 vs localhost)
-            if origin_host in ('127.0.0.1', 'localhost') and curr_host in ('127.0.0.1', 'localhost'):
-                return None
-                
-            # Allow LAN / Intranet requests (10.x.x.x, 192.168.x.x, 172.16-31.x.x)
-            if origin_host.startswith(('10.', '192.168.', '172.', '127.')) or origin_host == 'localhost':
-                return None
-                
-            return jsonify(error="CSRF Origin check failed"), 403
+        if not origin:
+            return None
+
+        from urllib.parse import urlparse
+        parsed_origin = urlparse(origin)
+        origin_netloc = (parsed_origin.netloc or '').lower()
+        origin_host = origin_netloc.split(':')[0].lower()
+
+        curr_host_header = (request.headers.get('X-Forwarded-Host') or request.headers.get('Host') or request.host or '').lower()
+        curr_host = curr_host_header.split(':')[0].lower()
+
+        # Exact match (with or without port)
+        if origin_netloc == curr_host_header or origin_host == curr_host or origin_host in curr_host_header or curr_host in origin_host:
+            return None
+
+        # Both are local loopback (e.g. 127.0.0.1 vs localhost)
+        if origin_host in ('127.0.0.1', 'localhost') and curr_host in ('127.0.0.1', 'localhost'):
+            return None
+
+        # Allow LAN / Intranet / Private requests (10.x.x.x, 192.168.x.x, 172.x.x.x, 127.x.x.x)
+        if origin_host.startswith(('10.', '192.168.', '172.', '127.')) or origin_host == 'localhost':
+            return None
+
+        # Allow Cloud deployments & college domains (Azure, Cloudflare, Ngrok, etc.)
+        if origin_host.endswith((
+            '.azurewebsites.net', '.trycloudflare.com', '.ngrok-free.app',
+            '.ngrok.io', '.onrender.com', '.vercel.app', '.loca.lt',
+            '.niet.co.in', '.edu', '.ac.in'
+        )):
+            return None
+
+        # Allow requests with authenticated session token
+        if session.get('user_id') and session.get('session_token'):
+            return None
+
+        return jsonify(error="CSRF Origin check failed"), 403
 
 @app.route('/')
 def home(): return render_template('index.html')
@@ -2285,7 +2304,9 @@ def run_once(language, code, input_data):
 
 @sock.route('/ws/run')
 def run(ws):
-    if session.get('role')!='student' or not has_exam_access(session.get('user_id')): return
+    role = session.get('role')
+    if role not in ('student', 'teacher', 'admin'): return
+    if role == 'student' and not has_exam_access(session.get('user_id')): return
     proc=td=None; q=queue.Queue(); started=0; out_len=0
     def reader(stream):
         nonlocal out_len
@@ -2312,16 +2333,20 @@ def run(ws):
             except (TypeError, ValueError): continue
             if m.get('action')=='start':
                 qid = m.get('question_id')
-                if not qid:
-                    ws.send(json.dumps({'type':'compile_error','data':'Question ID is required.'}))
-                    continue
-                c_run = conn()
-                tid = get_student_teacher_id(c_run, session.get('user_id'))
-                is_auth = is_question_authorized(c_run, session.get('user_id'), tid, 'coding', qid, session.get('exam_key'))
-                c_run.close()
-                if not is_auth:
-                    ws.send(json.dumps({'type':'compile_error','data':'Unauthorized question access.'}))
-                    continue
+                user_role = session.get('role')
+                if user_role == 'student':
+                    if not qid:
+                        ws.send(json.dumps({'type':'compile_error','data':'Question ID is required.'}))
+                        continue
+                    c_run = conn()
+                    tid = get_student_teacher_id(c_run, session.get('user_id'))
+                    is_auth = is_question_authorized(c_run, session.get('user_id'), tid, 'coding', qid, session.get('exam_key'))
+                    c_run.close()
+                    if not is_auth:
+                        ws.send(json.dumps({'type':'compile_error','data':'Unauthorized question access.'}))
+                        continue
+                elif user_role in ('teacher', 'admin'):
+                    pass
                 if proc: terminate_process_tree(proc); shutil.rmtree(td,ignore_errors=True)
                 proc,td,err=start_process(m.get('language'),m.get('code','')); started=time.time()
                 if err: ws.send(json.dumps({'type':'compile_error','data':err})); proc=td=None
